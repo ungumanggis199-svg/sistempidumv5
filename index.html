@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#152238" />
+  <meta name="description" content="Sistem Informasi Alur Administrasi Pidana Umum Kejaksaan Negeri Muna" />
+  <title>SIAP PIDUM Kejari Muna</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Playfair+Display:wght@700&family=Source+Serif+4:wght@600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <noscript>Aplikasi ini membutuhkan JavaScript.</noscript>
+
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+  <div id="modal-root"></div>
+
+  <section id="login-view" class="login-page">
+    <div class="login-decoration login-decoration-a"></div>
+    <div class="login-decoration login-decoration-b"></div>
+
+    <div class="login-brand-panel">
+      <div class="brand-lockup">
+        <div class="brand-emblem" aria-hidden="true">KJM</div>
+        <div>
+          <p class="eyebrow">KEJAKSAAN REPUBLIK INDONESIA</p>
+          <h1>SIAP PIDUM</h1>
+          <p>Sistem Informasi Alur Administrasi Pidana Umum<br />Kejaksaan Negeri Muna</p>
+        </div>
+      </div>
+
+      <div class="login-feature-card">
+        <span class="feature-number">01</span>
+        <div>
+          <h2>Administrasi perkara lebih tertib</h2>
+          <p>Penerimaan SPDP, pemantauan tenggat, penelitian berkas, Tahap II, pelimpahan, dan persidangan dalam satu alur kerja.</p>
+        </div>
+      </div>
+
+      <div class="security-note">
+        <span class="security-icon">◆</span>
+        <p>Gunakan akun resmi. Seluruh aktivitas penting dicatat dalam log aplikasi.</p>
+      </div>
+    </div>
+
+    <div class="login-form-panel">
+      <form id="login-form" class="login-card" autocomplete="on">
+        <div class="login-card-header">
+          <p class="eyebrow green">PORTAL TERPADU</p>
+          <h2>Masuk ke aplikasi</h2>
+          <p>Pilih peran, lalu masukkan nama pengguna dan kata sandi.</p>
+        </div>
+
+        <div class="role-selector" role="radiogroup" aria-label="Pilih peran pengguna">
+          <label class="role-option active" data-role-card="jaksa">
+            <input type="radio" name="role" value="jaksa" checked />
+            <span class="role-icon">⚖</span>
+            <span>
+              <strong>Jaksa</strong>
+              <small>Dashboard dan pengelolaan perkara</small>
+            </span>
+          </label>
+          <label class="role-option" data-role-card="penyidik">
+            <input type="radio" name="role" value="penyidik" />
+            <span class="role-icon">▤</span>
+            <span>
+              <strong>Penyidik</strong>
+              <small>Form pengiriman SPDP</small>
+            </span>
+          </label>
+        </div>
+
+        <label class="field-label" for="login-username">Nama pengguna</label>
+        <div class="input-with-icon">
+          <span>◎</span>
+          <input id="login-username" name="username" type="text" autocomplete="username" placeholder="Masukkan nama pengguna" required />
+        </div>
+
+        <label class="field-label" for="login-password">Kata sandi</label>
+        <div class="input-with-icon">
+          <span>●</span>
+          <input id="login-password" name="password" type="password" autocomplete="current-password" placeholder="Masukkan kata sandi" required />
+          <button type="button" id="toggle-password" class="icon-button" aria-label="Tampilkan kata sandi">◉</button>
+        </div>
+
+        <button id="login-submit" class="primary-button full" type="submit">
+          <span class="button-label">Masuk</span>
+          <span class="button-spinner" hidden></span>
+        </button>
+
+        <div class="login-help">
+          <p>Akun awal setelah menjalankan <code>setupProject()</code>:</p>
+          <div><code>jaksa / Jaksa@123</code></div>
+          <div><code>penyidik / Penyidik@123</code></div>
+          <p class="danger-text">Segera ganti akun awal sebelum penggunaan resmi.</p>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section id="app-view" class="app-shell" hidden>
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-brand">
+        <div class="sidebar-emblem">KJM</div>
+        <div>
+          <strong>SIAP PIDUM</strong>
+          <small>Kejari Muna</small>
+        </div>
+      </div>
+
+      <nav id="sidebar-menu" class="sidebar-menu" aria-label="Navigasi utama"></nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-user">
+          <div id="sidebar-avatar" class="avatar">U</div>
+          <div>
+            <strong id="sidebar-user-name">Pengguna</strong>
+            <small id="sidebar-user-role">Peran</small>
+          </div>
+        </div>
+        <button id="logout-button" class="logout-button" type="button">Keluar</button>
+      </div>
+    </aside>
+
+    <div class="app-main">
+      <header class="topbar">
+        <button id="mobile-menu-button" class="mobile-menu-button" type="button" aria-label="Buka menu">☰</button>
+
+        <div class="topbar-brand-lockup" aria-label="e-Pidum Kejaksaan Negeri Muna">
+          <div class="topbar-brand-emblem" aria-hidden="true">⚖</div>
+          <div>
+            <div class="topbar-brand-title">e-Pidum · Kejaksaan Negeri Muna</div>
+            <div class="topbar-brand-subtitle">Administrasi perkara tindak pidana umum</div>
+          </div>
+        </div>
+
+        <div class="topbar-page-context">
+          <p id="page-eyebrow" class="eyebrow">RINGKASAN</p>
+          <h1 id="page-title">Dashboard</h1>
+        </div>
+
+        <div class="topbar-actions">
+          <div id="connection-indicator" class="connection-indicator">
+            <span></span>
+            <small>Memeriksa koneksi</small>
+          </div>
+          <div class="date-chip" id="current-date"></div>
+          <button class="topbar-icon-button" type="button" aria-label="Notifikasi" title="Notifikasi tenggat">♢</button>
+          <div class="topbar-profile">
+            <div id="topbar-avatar" class="topbar-profile-avatar">U</div>
+            <div class="topbar-profile-copy">
+              <strong id="topbar-user-name">Pengguna</strong>
+              <small id="topbar-user-role">Peran</small>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main id="page-content" class="page-content"></main>
+    </div>
+  </section>
+
+  <script src="config.js"></script>
+  <script src="administration-forms.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
