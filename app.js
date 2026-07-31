@@ -571,28 +571,47 @@
   }
 
   function renderDeadlinesPage() {
-    const items = [...state.cases]
-      .filter((item) => item.deadlineDate)
-      .sort((a, b) => dateValue(a.deadlineDate) - dateValue(b.deadlineDate));
-    const urgent = items.filter((item) => ["warning", "overdue"].includes(getDeadlineState(item).state));
+    // Semua perkara aktif tetap ditampilkan. Versi sebelumnya hanya memasukkan
+    // perkara yang sudah mempunyai deadlineDate dan menyembunyikan perkara aman
+    // ketika ada satu perkara yang mendesak.
+    const items = [...state.cases].sort(compareDeadlinePriority);
+    const withDeadline = items.filter((item) => Boolean(item.deadlineDate));
+    const withoutDeadline = items.filter((item) => !item.deadlineDate).length;
 
     els.pageContent.innerHTML = `
       <div class="stats-grid">
-        ${statCard("!", items.filter((item) => getDeadlineState(item).state === "overdue").length, "Terlambat", "danger")}
-        ${statCard("◷", items.filter((item) => getDeadlineState(item).state === "warning").length, "≤ 3 hari", "warning")}
-        ${statCard("✓", items.filter((item) => getDeadlineState(item).state === "safe").length, "Masih aman", "")}
-        ${statCard("▤", items.length, "Perkara bertenggat", "blue")}
+        ${statCard("!", withDeadline.filter((item) => getDeadlineState(item).state === "overdue").length, "Terlambat", "danger")}
+        ${statCard("◷", withDeadline.filter((item) => getDeadlineState(item).state === "warning").length, "≤ 3 hari", "warning")}
+        ${statCard("✓", withDeadline.filter((item) => getDeadlineState(item).state === "safe").length, "Masih aman", "")}
+        ${statCard("▤", items.length, "Semua perkara aktif", "blue")}
       </div>
       <div class="panel">
         <div class="panel-header">
-          <div><h3>Prioritas tindak lanjut</h3><p>Tenggat dihitung dari tanggal yang tersimpan pada setiap tahapan.</p></div>
+          <div>
+            <h3>Prioritas tindak lanjut</h3>
+            <p>Perkara terlambat dan mendekati tenggat ditempatkan paling atas.${withoutDeadline ? ` ${withoutDeadline} perkara belum memiliki tanggal tenggat tetapi tetap ditampilkan.` : ""}</p>
+          </div>
           <button id="deadline-refresh" class="table-action" type="button">Segarkan</button>
         </div>
-        ${renderCaseTable(urgent.length ? urgent : items)}
+        ${renderCaseTable(items)}
       </div>`;
 
     document.getElementById("deadline-refresh")?.addEventListener("click", () => loadCases());
     bindCaseTableActions();
+  }
+
+  function compareDeadlinePriority(a, b) {
+    const priority = { overdue: 0, warning: 1, safe: 2, none: 3 };
+    const aState = a.deadlineDate ? getDeadlineState(a).state : "none";
+    const bState = b.deadlineDate ? getDeadlineState(b).state : "none";
+    const rankDiff = priority[aState] - priority[bState];
+    if (rankDiff !== 0) return rankDiff;
+
+    if (a.deadlineDate && b.deadlineDate) {
+      const dateDiff = dateValue(a.deadlineDate) - dateValue(b.deadlineDate);
+      if (dateDiff !== 0) return dateDiff;
+    }
+    return dateValue(b.updatedAt || b.createdAt) - dateValue(a.updatedAt || a.createdAt);
   }
 
   function renderDocumentsPage() {
