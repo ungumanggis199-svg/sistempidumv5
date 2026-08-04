@@ -1526,7 +1526,7 @@
       }
     }
 
-    const selectedCase = state.cases.find((item) => item.caseId === state.reminderBuilder.caseId) || null;
+    const selectedCase = findReminderCaseSource(state.reminderBuilder.caseId);
     const selectedType = state.reminderBuilder.type || "P-16";
     const existing = selectedCase ? findReminderForSelection(selectedCase.caseId, selectedType) : null;
     state.reminderBuilder.reminderId = existing?.reminderId || "";
@@ -1542,7 +1542,7 @@
           <div>
             <p class="eyebrow green">NOTIFIKASI WHATSAPP</p>
             <h2>Reminder administrasi perkara</h2>
-            <p>Pilih SPDP yang sudah masuk, tentukan administrasi dan Jaksa penanggung jawab. Sistem mengirim WhatsApp otomatis pada H-3, H-1, dan Hari H.</p>
+            <p>Pilih SPDP yang sudah masuk atau pilih SPDP baru untuk mengisi data secara manual. Sistem mengirim WhatsApp otomatis pada H-3, H-1, dan Hari H.</p>
           </div>
           <div class="reminder-system-status">
             <span class="${state.reminderMeta.fonnteConfigured ? "online" : "offline"}"></span>
@@ -1641,9 +1641,10 @@
   }
 
   function renderReminderForm(selectedCase, selectedType, existing) {
-    const caseOptions = [...state.cases].sort(sortByUpdatedDesc).map((item) => `
+    const sources = getReminderCaseSources();
+    const caseOptions = sources.map((item) => `
       <option value="${escapeAttr(item.caseId)}" ${selectedCase?.caseId === item.caseId ? "selected" : ""}>
-        ${escapeHtml(item.spdpNumber || item.caseId)} — ${escapeHtml(item.suspectName || "Tanpa nama")} (${escapeHtml(item.caseId)})
+        ${escapeHtml(item.spdpNumber || item.caseId)} — ${escapeHtml(item.suspectName || "Tanpa nama")}${item.reminderOnly ? " (reminder)" : ` (${escapeHtml(item.caseId)})`}
       </option>`).join("");
     const typeOptions = REMINDER_ADMIN_TYPES.map((item) => `
       <option value="${escapeAttr(item.code)}" ${selectedType === item.code ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("");
@@ -1653,18 +1654,20 @@
         <div class="form-field">
           <label for="reminder-case-select">Pilih SPDP/perkara <span class="required">*</span></label>
           <select id="reminder-case-select" required>
-            <option value="">Pilih SPDP baru yang sudah masuk...</option>
+            <option value="">Pilih SPDP/perkara...</option>
+            <option value="__NEW_SPDP__">＋ SPDP baru — isi data secara manual</option>
             ${caseOptions}
           </select>
-          <small class="form-hint">Data SPDP dan tersangka akan terisi otomatis dari sheet Cases.</small>
+          <small class="form-hint">Pilih SPDP baru untuk membuat reminder sebelum data perkara tersedia pada sheet Cases.</small>
         </div>
         <div class="reminder-form-placeholder">
-          <span>♢</span><strong>Pilih perkara terlebih dahulu</strong><p>Setelah dipilih, seluruh field dasar akan terisi otomatis dan dapat diperiksa kembali.</p>
+          <span>♢</span><strong>Pilih perkara atau SPDP baru</strong><p>Data perkara lama terisi otomatis. Untuk SPDP baru, field dasar dapat diisi manual.</p>
         </div>`;
     }
 
     const rule = REMINDER_ADMIN_TYPES.find((item) => item.code === selectedType) || REMINDER_ADMIN_TYPES[0];
-    const source = existing || selectedCase;
+    const isNewSpdp = selectedCase.caseId === "__NEW_SPDP__";
+    const source = existing || (isNewSpdp ? {} : selectedCase);
     const deadlineDays = existing
       ? String(existing.deadlineDays ?? "")
       : rule.defaultDays === null ? "" : String(rule.defaultDays);
@@ -1678,20 +1681,21 @@
 
     const prosecutorOptions = state.prosecutors.map((item) => {
       const selected = String(existing?.prosecutorId || "") === String(item.id);
-      const suffix = item.phoneValid ? `${item.nip ? ` · ${item.nip}` : ""} · ${item.phoneDisplay || item.phone}` : " · nomor WA belum diisi";
-      return `<option value="${escapeAttr(item.id)}" ${selected ? "selected" : ""} ${item.phoneValid ? "" : "disabled"}>${escapeHtml(item.name + suffix)}</option>`;
+      return `<option value="${escapeAttr(item.id)}" ${selected ? "selected" : ""} ${item.phoneValid ? "" : "disabled"}>${escapeHtml(item.name)}</option>`;
     }).join("");
 
     return `
       <form id="reminder-form" novalidate>
         <input type="hidden" name="reminderId" value="${escapeAttr(existing?.reminderId || "")}" />
-        <input type="hidden" name="caseId" value="${escapeAttr(selectedCase.caseId)}" />
+        <input type="hidden" name="caseId" value="${escapeAttr(isNewSpdp ? "" : selectedCase.caseId)}" />
+        <input type="hidden" name="isNewSpdp" value="${isNewSpdp ? "1" : "0"}" />
 
         <div class="reminder-selector-grid">
           <div class="form-field">
             <label for="reminder-case-select">Pilih SPDP/perkara <span class="required">*</span></label>
             <select id="reminder-case-select" required>
-              <option value="">Pilih SPDP...</option>
+              <option value="">Pilih SPDP/perkara...</option>
+              <option value="__NEW_SPDP__" ${isNewSpdp ? "selected" : ""}>＋ SPDP baru — isi data secara manual</option>
               ${caseOptions}
             </select>
           </div>
@@ -1730,7 +1734,7 @@
               <option value="">Pilih Jaksa dari sheet List Jaksa...</option>
               ${prosecutorOptions}
             </select>
-            <small class="form-hint">Nomor WhatsApp tidak ditampilkan penuh pada pesan, tetapi dibaca dari sheet List Jaksa.</small>
+            <small class="form-hint">Dropdown hanya menampilkan nama. Nomor WhatsApp tetap dibaca dari sheet List Jaksa.</small>
           </div>
           <div class="form-field full-span">
             <label for="reminder-notes">Catatan reminder</label>
@@ -1761,9 +1765,60 @@
     </div>`;
   }
 
+  function getReminderCaseSources() {
+    const sources = new Map();
+    [...state.cases].sort(sortByUpdatedDesc).forEach((item) => {
+      if (item?.caseId) sources.set(String(item.caseId), item);
+    });
+
+    // SPDP yang dibuat langsung dari menu reminder tetap muncul kembali
+    // agar administrasi berikutnya dapat memakai referensi yang sama.
+    [...state.reminders]
+      .sort((a, b) => dateValue(b.updatedAt || b.createdAt) - dateValue(a.updatedAt || a.createdAt))
+      .forEach((item) => {
+        const id = String(item.caseId || "");
+        if (!id || sources.has(id)) return;
+        sources.set(id, {
+          caseId: id,
+          spdpNumber: item.spdpNumber || "",
+          spdpDate: item.spdpDate || "",
+          sprindikNumber: item.sprindikNumber || "",
+          sprindikDate: item.sprindikDate || "",
+          receivedDate: item.receivedDate || "",
+          detentionEndDate: item.detentionEndDate || "",
+          suspectName: item.suspectName || "",
+          administrations: [],
+          reminderOnly: true,
+          updatedAt: item.updatedAt || item.createdAt || ""
+        });
+      });
+
+    return [...sources.values()].sort((a, b) => dateValue(b.updatedAt || b.createdAt) - dateValue(a.updatedAt || a.createdAt));
+  }
+
+  function findReminderCaseSource(caseId) {
+    if (!caseId) return null;
+    if (caseId === "__NEW_SPDP__") {
+      return {
+        caseId: "__NEW_SPDP__",
+        spdpNumber: "",
+        spdpDate: "",
+        sprindikNumber: "",
+        sprindikDate: "",
+        receivedDate: "",
+        detentionEndDate: "",
+        suspectName: "",
+        administrations: [],
+        reminderOnly: true,
+        isNewSpdp: true
+      };
+    }
+    return getReminderCaseSources().find((item) => String(item.caseId) === String(caseId)) || null;
+  }
+
   function renderReminderProgress(selectedCase) {
-    if (!selectedCase) {
-      return `<div class="reminder-progress-empty"><span>↳</span><strong>Belum ada perkara dipilih</strong><small>Progres akan muncul setelah memilih SPDP.</small></div>`;
+    if (!selectedCase || selectedCase.caseId === "__NEW_SPDP__") {
+      return `<div class="reminder-progress-empty"><span>↳</span><strong>${selectedCase ? "SPDP baru belum disimpan" : "Belum ada perkara dipilih"}</strong><small>${selectedCase ? "Progres akan terbentuk setelah reminder pertama disimpan." : "Progres akan muncul setelah memilih SPDP."}</small></div>`;
     }
     const caseReminders = state.reminders.filter((item) => item.caseId === selectedCase.caseId);
     const completedDocuments = new Set((selectedCase.administrations || []).map((item) => String(item.type || "").toUpperCase()));
