@@ -1096,3 +1096,20 @@ body { background: var(--pidum-paper); }
 @media (max-width: 700px) {
   .reminder-flow-labels small { font-size: 7px; }
 }
+
+
+/* Aksi hapus reminder */
+.reminder-delete-action {
+  color: var(--red-700);
+  border-color: #f4b7b2;
+  background: #fffafa;
+}
+.reminder-delete-action:hover {
+  color: #8f1d15;
+  border-color: var(--red-700);
+  background: var(--red-100);
+}
+.reminder-delete-action:disabled {
+  opacity: .55;
+  cursor: wait;
+}
