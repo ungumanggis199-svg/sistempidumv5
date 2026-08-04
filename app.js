@@ -107,6 +107,26 @@
     }
   ]);
 
+  const REMINDER_ADMIN_TYPES = Object.freeze([
+    { code: "P-16", label: "P-16 — Penunjukan Penuntut Umum", defaultDays: 7, base: "received" },
+    { code: "P-18", label: "P-18 — Pengantar pengembalian berkas", defaultDays: null, base: "received" },
+    { code: "P-19", label: "P-19 — Petunjuk berkas belum lengkap", defaultDays: 7, base: "received" },
+    { code: "P-21", label: "P-21 — Berkas lengkap", defaultDays: 7, base: "received" },
+    { code: "P-29", label: "P-29 — Surat dakwaan", defaultDays: null, base: "received" },
+    { code: "T-6", label: "T-6 — Pengeluaran tahanan", defaultDays: 0, base: "detention" },
+    { code: "T-7", label: "T-7 — Perpanjangan penahanan", defaultDays: 0, base: "detention" }
+  ]);
+
+  const REMINDER_PROGRESS_STAGES = Object.freeze([
+    { code: "P-16", label: "Penunjukan Penuntut Umum" },
+    { code: "P-18", label: "Pengantar pengembalian berkas" },
+    { code: "P-19", label: "Petunjuk berkas belum lengkap" },
+    { code: "P-21", label: "Pemberitahuan berkas lengkap" },
+    { code: "P-29", label: "Surat dakwaan" },
+    { code: "T-6", label: "Pengeluaran tahanan" },
+    { code: "T-7", label: "Perpanjangan penahanan" }
+  ]);
+
   const state = {
     session: null,
     cases: [],
@@ -118,7 +138,13 @@
     statusFilter: "ALL",
     deadlineFilter: "ALL",
     stageFilter: "ALL",
-    administrationBuilder: { caseId: "", type: "" }
+    administrationBuilder: { caseId: "", type: "" },
+    reminders: [],
+    prosecutors: [],
+    reminderMeta: { fonnteConfigured: false, triggerInstalled: false, triggerHour: 8, timezone: "Asia/Makassar" },
+    remindersLoaded: false,
+    reminderBuilder: { caseId: "", type: "P-16", reminderId: "" },
+    reminderFilter: "ALL"
   };
 
   const els = {};
@@ -264,6 +290,10 @@
     state.cases = [];
     state.selectedFile = null;
     state.selectedAdministrationFile = null;
+    state.reminders = [];
+    state.prosecutors = [];
+    state.remindersLoaded = false;
+    state.reminderBuilder = { caseId: "", type: "P-16", reminderId: "" };
     els.modalRoot.innerHTML = "";
     showLogin();
     toast("info", "Sesi diakhiri", "Anda telah keluar dari aplikasi.");
@@ -284,6 +314,10 @@
   function renderSidebar() {
     const isJaksa = state.session.user.role === "jaksa";
     const urgentCount = isJaksa ? state.cases.filter((item) => ["warning", "overdue"].includes(getDeadlineState(item).state)).length : 0;
+    const reminderUrgentCount = isJaksa ? state.reminders.filter((item) => {
+      const deadline = getReminderDeadlineState(item);
+      return String(item.status || "ACTIVE") === "ACTIVE" && ["warning", "overdue"].includes(deadline.state);
+    }).length : 0;
 
     const items = isJaksa
       ? [
@@ -292,6 +326,7 @@
           { id: "cases", icon: "▤", label: "Daftar Perkara" },
           { id: "deadlines", icon: "◷", label: "Tenggat Waktu", badge: urgentCount || "" },
           { section: "ADMINISTRASI" },
+          { id: "reminders", icon: "♢", label: "Reminder WhatsApp", badge: reminderUrgentCount || "" },
           { id: "administration-builder", icon: "▣", label: "Buat Administrasi" },
           { id: "documents", icon: "▧", label: "Dokumen SPDP" },
           { id: "investigators", icon: "♙", label: "Penyidik" },
@@ -346,6 +381,7 @@
       documents: ["Dokumen SPDP", "ARSIP DIGITAL", renderDocumentsPage],
       investigators: ["Data Penyidik", "MITRA KERJA", renderInvestigatorsPage],
       workflow: ["Alur Administrasi", "PEDOMAN KERJA", renderWorkflowPage],
+      reminders: ["Reminder WhatsApp", "PENGAWASAN ADMINISTRASI", renderRemindersPage],
       "administration-builder": ["Buat Administrasi", "FORM OTOMATIS", renderAdministrationBuilderPage],
       settings: ["Pengaturan", "KONFIGURASI", renderSettingsPage],
       "submit-spdp": ["Pengiriman SPDP", "FORM PENYIDIK", renderInvestigatorForm]
@@ -1471,6 +1507,494 @@
     } finally {
       setButtonLoading(button, false);
     }
+  }
+
+  async function renderRemindersPage() {
+    if (!state.remindersLoaded) {
+      els.pageContent.innerHTML = `
+        <div class="panel loading-panel">
+          <div class="skeleton loading-line w40"></div>
+          <div class="skeleton loading-line w90"></div>
+          <div class="skeleton" style="height:210px"></div>
+        </div>`;
+      try {
+        await loadReminderData();
+        renderSidebar();
+        return renderRemindersPage();
+      } catch (error) {
+        return renderReminderLoadError(error);
+      }
+    }
+
+    const selectedCase = state.cases.find((item) => item.caseId === state.reminderBuilder.caseId) || null;
+    const selectedType = state.reminderBuilder.type || "P-16";
+    const existing = selectedCase ? findReminderForSelection(selectedCase.caseId, selectedType) : null;
+    state.reminderBuilder.reminderId = existing?.reminderId || "";
+
+    const active = state.reminders.filter((item) => String(item.status || "ACTIVE") === "ACTIVE");
+    const dueSoon = active.filter((item) => getReminderDeadlineState(item).state === "warning").length;
+    const overdue = active.filter((item) => getReminderDeadlineState(item).state === "overdue").length;
+    const completed = state.reminders.filter((item) => String(item.status) === "COMPLETED").length;
+
+    els.pageContent.innerHTML = `
+      <section class="reminder-shell">
+        <div class="reminder-hero">
+          <div>
+            <p class="eyebrow green">NOTIFIKASI WHATSAPP</p>
+            <h2>Reminder administrasi perkara</h2>
+            <p>Pilih SPDP yang sudah masuk, tentukan administrasi dan Jaksa penanggung jawab. Sistem mengirim WhatsApp otomatis pada H-3, H-1, dan Hari H.</p>
+          </div>
+          <div class="reminder-system-status">
+            <span class="${state.reminderMeta.fonnteConfigured ? "online" : "offline"}"></span>
+            <div>
+              <strong>${state.reminderMeta.fonnteConfigured ? "Fonnte siap" : "Token Fonnte belum diatur"}</strong>
+              <small>${state.reminderMeta.triggerInstalled ? `Trigger harian aktif sekitar pukul ${String(state.reminderMeta.triggerHour || 8).padStart(2, "0")}.00 WITA` : "Trigger otomatis belum terpasang"}</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats-grid reminder-stats-grid">
+          ${statCard("♢", active.length, "Reminder aktif", "blue")}
+          ${statCard("◷", dueSoon, "Jatuh tempo ≤ 3 hari", "warning")}
+          ${statCard("!", overdue, "Lewat deadline", "danger")}
+          ${statCard("✓", completed, "Administrasi selesai", "")}
+        </div>
+
+        <div class="reminder-layout">
+          <section class="panel reminder-form-panel">
+            <div class="panel-header">
+              <div>
+                <h3>${existing ? `Edit reminder ${escapeHtml(selectedType)}` : "Tambah reminder baru"}</h3>
+                <p>Memilih perkara dan jenis administrasi yang sudah pernah disimpan akan membuka data untuk diedit.</p>
+              </div>
+              ${existing ? `<span class="status-badge blue">Mode edit</span>` : ""}
+            </div>
+            <div class="panel-body">
+              ${renderReminderForm(selectedCase, selectedType, existing)}
+            </div>
+          </section>
+
+          <section class="panel reminder-progress-panel">
+            <div class="panel-header">
+              <div><h3>Progres administrasi</h3><p>Urutan P-16 sampai T-7 untuk perkara yang dipilih.</p></div>
+            </div>
+            <div class="panel-body">
+              ${renderReminderProgress(selectedCase)}
+            </div>
+          </section>
+        </div>
+
+        <section class="panel reminder-list-panel">
+          <div class="panel-header">
+            <div>
+              <h3>Daftar reminder</h3>
+              <p>Riwayat pengaturan reminder dan status pengiriman WhatsApp.</p>
+            </div>
+            <div class="panel-actions reminder-list-actions">
+              <select id="reminder-list-filter" class="compact-select">
+                <option value="ALL" ${state.reminderFilter === "ALL" ? "selected" : ""}>Semua status</option>
+                <option value="ACTIVE" ${state.reminderFilter === "ACTIVE" ? "selected" : ""}>Aktif</option>
+                <option value="DUE" ${state.reminderFilter === "DUE" ? "selected" : ""}>Mendekati/lewat deadline</option>
+                <option value="COMPLETED" ${state.reminderFilter === "COMPLETED" ? "selected" : ""}>Selesai</option>
+              </select>
+              <button id="reminder-refresh" class="table-action" type="button">Segarkan</button>
+            </div>
+          </div>
+          ${renderReminderTable()}
+        </section>
+      </section>`;
+
+    bindReminderPage(selectedCase, selectedType, existing);
+  }
+
+  async function loadReminderData() {
+    const [reminderResult, prosecutorResult] = await Promise.all([
+      gasRequest("listReminders"),
+      gasRequest("listProsecutors")
+    ]);
+    state.reminders = Array.isArray(reminderResult.reminders) ? reminderResult.reminders : [];
+    state.prosecutors = Array.isArray(prosecutorResult.prosecutors) ? prosecutorResult.prosecutors : [];
+    state.reminderMeta = {
+      fonnteConfigured: Boolean(reminderResult.fonnteConfigured),
+      triggerInstalled: Boolean(reminderResult.triggerInstalled),
+      triggerHour: Number(reminderResult.triggerHour || 8),
+      timezone: reminderResult.timezone || "Asia/Makassar"
+    };
+    state.remindersLoaded = true;
+    setConnection(true);
+  }
+
+  function renderReminderLoadError(error) {
+    els.pageContent.innerHTML = `
+      <div class="panel">
+        <div class="empty-state">
+          <div class="empty-state-icon">!</div>
+          <h3>Modul reminder belum siap</h3>
+          <p>${escapeHtml(error?.message || "Data reminder tidak dapat dimuat.")}</p>
+          <button id="retry-reminder-load" class="primary-button" style="margin-top:18px" type="button">Coba lagi</button>
+        </div>
+      </div>`;
+    document.getElementById("retry-reminder-load")?.addEventListener("click", () => {
+      state.remindersLoaded = false;
+      renderRemindersPage();
+    });
+  }
+
+  function renderReminderForm(selectedCase, selectedType, existing) {
+    const caseOptions = [...state.cases].sort(sortByUpdatedDesc).map((item) => `
+      <option value="${escapeAttr(item.caseId)}" ${selectedCase?.caseId === item.caseId ? "selected" : ""}>
+        ${escapeHtml(item.spdpNumber || item.caseId)} — ${escapeHtml(item.suspectName || "Tanpa nama")} (${escapeHtml(item.caseId)})
+      </option>`).join("");
+    const typeOptions = REMINDER_ADMIN_TYPES.map((item) => `
+      <option value="${escapeAttr(item.code)}" ${selectedType === item.code ? "selected" : ""}>${escapeHtml(item.label)}</option>`).join("");
+
+    if (!selectedCase) {
+      return `
+        <div class="form-field">
+          <label for="reminder-case-select">Pilih SPDP/perkara <span class="required">*</span></label>
+          <select id="reminder-case-select" required>
+            <option value="">Pilih SPDP baru yang sudah masuk...</option>
+            ${caseOptions}
+          </select>
+          <small class="form-hint">Data SPDP dan tersangka akan terisi otomatis dari sheet Cases.</small>
+        </div>
+        <div class="reminder-form-placeholder">
+          <span>♢</span><strong>Pilih perkara terlebih dahulu</strong><p>Setelah dipilih, seluruh field dasar akan terisi otomatis dan dapat diperiksa kembali.</p>
+        </div>`;
+    }
+
+    const rule = REMINDER_ADMIN_TYPES.find((item) => item.code === selectedType) || REMINDER_ADMIN_TYPES[0];
+    const source = existing || selectedCase;
+    const deadlineDays = existing
+      ? String(existing.deadlineDays ?? "")
+      : rule.defaultDays === null ? "" : String(rule.defaultDays);
+    const isDetention = ["T-6", "T-7"].includes(selectedType);
+    const preview = calculateReminderDeadlinePreview(
+      selectedType,
+      normalizeDateInput(source.receivedDate || selectedCase.receivedDate),
+      normalizeDateInput(source.detentionEndDate),
+      deadlineDays
+    );
+
+    const prosecutorOptions = state.prosecutors.map((item) => {
+      const selected = String(existing?.prosecutorId || "") === String(item.id);
+      const suffix = item.phoneValid ? `${item.nip ? ` · ${item.nip}` : ""} · ${item.phoneDisplay || item.phone}` : " · nomor WA belum diisi";
+      return `<option value="${escapeAttr(item.id)}" ${selected ? "selected" : ""} ${item.phoneValid ? "" : "disabled"}>${escapeHtml(item.name + suffix)}</option>`;
+    }).join("");
+
+    return `
+      <form id="reminder-form" novalidate>
+        <input type="hidden" name="reminderId" value="${escapeAttr(existing?.reminderId || "")}" />
+        <input type="hidden" name="caseId" value="${escapeAttr(selectedCase.caseId)}" />
+
+        <div class="reminder-selector-grid">
+          <div class="form-field">
+            <label for="reminder-case-select">Pilih SPDP/perkara <span class="required">*</span></label>
+            <select id="reminder-case-select" required>
+              <option value="">Pilih SPDP...</option>
+              ${caseOptions}
+            </select>
+          </div>
+          <div class="form-field">
+            <label for="reminder-administration-type">Jenis Administrasi <span class="required">*</span></label>
+            <select id="reminder-administration-type" name="administrationType" required>${typeOptions}</select>
+            <small class="form-hint">Pilih administrasi yang sama untuk membuka dan mengedit reminder lama.</small>
+          </div>
+        </div>
+
+        <div class="reminder-form-grid">
+          ${reminderInput("Nomor SPDP", "spdpNumber", "text", source.spdpNumber || selectedCase.spdpNumber, true)}
+          ${reminderInput("Tanggal SPDP", "spdpDate", "date", normalizeDateInput(source.spdpDate || selectedCase.spdpDate), true)}
+          ${reminderInput("Nomor Sprindik", "sprindikNumber", "text", source.sprindikNumber || selectedCase.sprindikNumber, true)}
+          ${reminderInput("Tanggal Sprindik", "sprindikDate", "date", normalizeDateInput(source.sprindikDate || selectedCase.sprindikDate), true)}
+          ${reminderInput("Akhir masa penahanan", "detentionEndDate", "date", normalizeDateInput(source.detentionEndDate), isDetention, isDetention ? "Wajib untuk T-6 dan T-7." : "Opsional; isi jika perkara menggunakan penahanan.")}
+          ${reminderInput("Tanggal SPDP diterima Kejaksaan", "receivedDate", "date", normalizeDateInput(source.receivedDate || selectedCase.receivedDate), true)}
+          ${reminderInput("Nama Tersangka", "suspectName", "text", source.suspectName || selectedCase.suspectName, true)}
+          <div class="form-field">
+            <label for="reminder-deadline-days">${isDetention ? "Deadline (hari sebelum akhir masa penahanan)" : "Deadline (hari setelah SPDP diterima)"} <span class="required">*</span></label>
+            <input id="reminder-deadline-days" name="deadlineDays" type="number" min="0" max="3650" step="1" value="${escapeAttr(deadlineDays)}" required />
+            <small class="form-hint">${isDetention ? "Isi 0 untuk tepat pada akhir masa penahanan. Nilai 3 berarti deadline ditetapkan 3 hari sebelumnya." : "P-16, P-19, dan P-21 otomatis diisi 7 hari; nilainya tetap dapat disesuaikan."}</small>
+          </div>
+          ${selectedType === "T-7" ? `
+            <div class="form-field">
+              <label for="reminder-detention-category">Kategori T-7 <span class="required">*</span></label>
+              <select id="reminder-detention-category" name="detentionCategory" required>
+                <option value="">Pilih kategori...</option>
+                <option value="ANAK" ${String(existing?.detentionCategory || "") === "ANAK" ? "selected" : ""}>Tahanan Anak</option>
+                <option value="DEWASA" ${String(existing?.detentionCategory || "") === "DEWASA" ? "selected" : ""}>Tahanan Dewasa</option>
+              </select>
+            </div>` : ""}
+          <div class="form-field">
+            <label for="reminder-prosecutor">Jaksa Penanggung Jawab <span class="required">*</span></label>
+            <select id="reminder-prosecutor" name="prosecutorId" required>
+              <option value="">Pilih Jaksa dari sheet List Jaksa...</option>
+              ${prosecutorOptions}
+            </select>
+            <small class="form-hint">Nomor WhatsApp tidak ditampilkan penuh pada pesan, tetapi dibaca dari sheet List Jaksa.</small>
+          </div>
+          <div class="form-field full-span">
+            <label for="reminder-notes">Catatan reminder</label>
+            <textarea id="reminder-notes" name="notes" placeholder="Tambahkan catatan tindak lanjut bila diperlukan.">${escapeHtml(existing?.notes || "")}</textarea>
+          </div>
+        </div>
+
+        <div id="reminder-deadline-preview" class="reminder-deadline-preview ${preview ? "ready" : ""}">
+          <span>◷</span>
+          <div><strong>${preview ? `Deadline: ${escapeHtml(formatDate(preview))}` : "Deadline belum dapat dihitung"}</strong><small>WhatsApp otomatis dikirim pada H-3, H-1, dan Hari H selama status reminder masih aktif.</small></div>
+        </div>
+
+        <div class="reminder-form-actions">
+          <button id="reminder-reset-builder" class="ghost-button" type="button">Buat reminder lain</button>
+          <button id="reminder-save-button" class="primary-button" type="submit">
+            <span class="button-label">${existing ? "Perbarui reminder" : "Simpan reminder"}</span>
+            <span class="button-spinner" hidden></span>
+          </button>
+        </div>
+      </form>`;
+  }
+
+  function reminderInput(label, name, type, value, required, hint = "") {
+    return `<div class="form-field ${name === "suspectName" ? "full-span" : ""}">
+      <label for="reminder-${escapeAttr(name)}">${escapeHtml(label)} ${required ? '<span class="required">*</span>' : ""}</label>
+      <input id="reminder-${escapeAttr(name)}" name="${escapeAttr(name)}" type="${escapeAttr(type)}" value="${escapeAttr(value || "")}" ${required ? "required" : ""} />
+      ${hint ? `<small class="form-hint">${escapeHtml(hint)}</small>` : ""}
+    </div>`;
+  }
+
+  function renderReminderProgress(selectedCase) {
+    if (!selectedCase) {
+      return `<div class="reminder-progress-empty"><span>↳</span><strong>Belum ada perkara dipilih</strong><small>Progres akan muncul setelah memilih SPDP.</small></div>`;
+    }
+    const caseReminders = state.reminders.filter((item) => item.caseId === selectedCase.caseId);
+    const completedDocuments = new Set((selectedCase.administrations || []).map((item) => String(item.type || "").toUpperCase()));
+    const statuses = REMINDER_PROGRESS_STAGES.map((stage) => {
+      const reminder = caseReminders.find((item) => item.administrationType === stage.code);
+      const done = completedDocuments.has(stage.code) || reminder?.status === "COMPLETED";
+      const active = reminder?.status === "ACTIVE";
+      return { ...stage, reminder, done, active };
+    });
+    const completedCount = statuses.filter((item) => item.done).length;
+    const percentage = Math.round((completedCount / REMINDER_PROGRESS_STAGES.length) * 100);
+
+    return `
+      <div class="reminder-progress-summary">
+        <div><strong>${escapeHtml(selectedCase.suspectName || selectedCase.caseId)}</strong><small>SPDP ${escapeHtml(selectedCase.spdpNumber || "-")}</small></div>
+        <span>${completedCount}/${REMINDER_PROGRESS_STAGES.length}</span>
+      </div>
+      <div class="administration-progress"><span style="width:${percentage}%"></span></div>
+      <div class="reminder-stage-list">
+        ${statuses.map((item, index) => {
+          const stateClass = item.done ? "complete" : item.active ? "active" : "pending";
+          const statusText = item.done ? "Selesai" : item.active
+            ? `Reminder aktif · ${formatDate(item.reminder.deadlineDate)}`
+            : "Belum dibuat";
+          return `<div class="reminder-stage-item ${stateClass}">
+            <div class="reminder-stage-track"><span>${item.done ? "✓" : index + 1}</span><i></i></div>
+            <div><strong>${escapeHtml(item.code)} — ${escapeHtml(item.label)}</strong><small>${escapeHtml(statusText)}</small></div>
+          </div>`;
+        }).join("")}
+      </div>
+      <p class="reminder-progress-note">P-19 dan P-21 mengikuti hasil penelitian berkas. P-18, T-6, dan T-7 dapat ditandai selesai dari daftar reminder.</p>`;
+  }
+
+  function renderReminderTable() {
+    let items = [...state.reminders];
+    if (state.reminderFilter === "ACTIVE") items = items.filter((item) => item.status === "ACTIVE");
+    if (state.reminderFilter === "COMPLETED") items = items.filter((item) => item.status === "COMPLETED");
+    if (state.reminderFilter === "DUE") items = items.filter((item) => item.status === "ACTIVE" && ["warning", "overdue"].includes(getReminderDeadlineState(item).state));
+    items.sort((a, b) => dateValue(a.deadlineDate) - dateValue(b.deadlineDate));
+
+    if (!items.length) return emptyState("♢", "Belum ada reminder", "Simpan reminder baru untuk mulai mengirim notifikasi WhatsApp.");
+
+    return `<div class="table-wrap"><table class="reminder-table">
+      <thead><tr><th>SPDP / Tersangka</th><th>Administrasi</th><th>Jaksa</th><th>Deadline</th><th>Pengiriman</th><th>Status</th><th>Aksi</th></tr></thead>
+      <tbody>${items.map((item) => {
+        const deadline = getReminderDeadlineState(item);
+        const statusTone = item.status === "COMPLETED" ? "green" : item.status === "CANCELLED" ? "gray" : deadline.state === "overdue" ? "red" : deadline.state === "warning" ? "amber" : "blue";
+        const typeLabel = item.administrationType === "T-7" && item.detentionCategory
+          ? `${item.administrationType} · ${item.detentionCategory === "ANAK" ? "Tahanan Anak" : "Tahanan Dewasa"}`
+          : item.administrationType;
+        return `<tr>
+          <td><div class="case-primary">${escapeHtml(item.spdpNumber || item.caseId)}</div><div class="case-secondary">${escapeHtml(item.suspectName || "-")} · ${escapeHtml(item.caseId || "-")}</div></td>
+          <td><span class="status-badge blue">${escapeHtml(typeLabel)}</span><div class="case-secondary">${Number(item.deadlineDays || 0)} hari</div></td>
+          <td><div class="case-primary">${escapeHtml(item.prosecutorName || "-")}</div><div class="case-secondary">${maskPhone(item.prosecutorPhone)}</div></td>
+          <td><span class="deadline-badge ${deadline.state}">${escapeHtml(deadline.label)}</span><div class="case-secondary">${formatDate(item.deadlineDate)}</div></td>
+          <td>${renderReminderSendPills(item)}<div class="case-secondary">${escapeHtml(reminderLastSendLabel(item.lastSendStatus))}</div></td>
+          <td><span class="status-badge ${statusTone}">${escapeHtml(reminderStatusLabel(item.status))}</span></td>
+          <td><div class="reminder-row-actions">
+            <button class="table-action" data-reminder-edit="${escapeAttr(item.reminderId)}" type="button">Edit</button>
+            <button class="table-action" data-reminder-send="${escapeAttr(item.reminderId)}" type="button">Kirim sekarang</button>
+            <button class="table-action" data-reminder-status="${escapeAttr(item.reminderId)}" data-next-status="${item.status === "COMPLETED" ? "ACTIVE" : "COMPLETED"}" type="button">${item.status === "COMPLETED" ? "Aktifkan" : "Tandai selesai"}</button>
+          </div></td>
+        </tr>`;
+      }).join("")}</tbody>
+    </table></div>`;
+  }
+
+  function renderReminderSendPills(item) {
+    return `<div class="reminder-send-pills">
+      <span class="${item.sentH3At ? "sent" : ""}" title="${item.sentH3At ? formatDateTime(item.sentH3At) : "Belum dikirim"}">H-3</span>
+      <span class="${item.sentH1At ? "sent" : ""}" title="${item.sentH1At ? formatDateTime(item.sentH1At) : "Belum dikirim"}">H-1</span>
+      <span class="${item.sentH0At ? "sent" : ""}" title="${item.sentH0At ? formatDateTime(item.sentH0At) : "Belum dikirim"}">H</span>
+    </div>`;
+  }
+
+  function bindReminderPage(selectedCase, selectedType, existing) {
+    document.getElementById("reminder-case-select")?.addEventListener("change", (event) => {
+      state.reminderBuilder.caseId = event.target.value;
+      state.reminderBuilder.reminderId = "";
+      renderRemindersPage();
+    });
+    document.getElementById("reminder-administration-type")?.addEventListener("change", (event) => {
+      state.reminderBuilder.type = event.target.value;
+      state.reminderBuilder.reminderId = "";
+      renderRemindersPage();
+    });
+    document.getElementById("reminder-form")?.addEventListener("submit", handleReminderSubmit);
+    document.getElementById("reminder-reset-builder")?.addEventListener("click", () => {
+      state.reminderBuilder = { caseId: "", type: "P-16", reminderId: "" };
+      renderRemindersPage();
+    });
+    ["reminder-receivedDate", "reminder-detentionEndDate", "reminder-deadline-days"].forEach((id) => {
+      document.getElementById(id)?.addEventListener("input", updateReminderDeadlinePreview);
+      document.getElementById(id)?.addEventListener("change", updateReminderDeadlinePreview);
+    });
+    document.getElementById("reminder-list-filter")?.addEventListener("change", (event) => {
+      state.reminderFilter = event.target.value;
+      renderRemindersPage();
+    });
+    document.getElementById("reminder-refresh")?.addEventListener("click", async () => {
+      state.remindersLoaded = false;
+      await renderRemindersPage();
+    });
+
+    document.querySelectorAll("[data-reminder-edit]").forEach((button) => button.addEventListener("click", () => {
+      const reminder = state.reminders.find((item) => item.reminderId === button.dataset.reminderEdit);
+      if (!reminder) return;
+      state.reminderBuilder = { caseId: reminder.caseId, type: reminder.administrationType, reminderId: reminder.reminderId };
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      renderRemindersPage();
+    }));
+
+    document.querySelectorAll("[data-reminder-send]").forEach((button) => button.addEventListener("click", async () => {
+      const reminder = state.reminders.find((item) => item.reminderId === button.dataset.reminderSend);
+      if (!reminder) return;
+      if (!window.confirm(`Kirim reminder ${reminder.administrationType} sekarang kepada ${reminder.prosecutorName}?`)) return;
+      button.disabled = true;
+      try {
+        await gasRequest("sendReminderNow", { reminderId: reminder.reminderId });
+        toast("success", "WhatsApp masuk antrean", `Reminder dikirim kepada ${reminder.prosecutorName}.`);
+        await loadReminderData();
+        renderSidebar();
+        renderRemindersPage();
+      } catch (error) {
+        toast("error", "Pengiriman gagal", error.message);
+      } finally {
+        button.disabled = false;
+      }
+    }));
+
+    document.querySelectorAll("[data-reminder-status]").forEach((button) => button.addEventListener("click", async () => {
+      const nextStatus = button.dataset.nextStatus;
+      button.disabled = true;
+      try {
+        await gasRequest("updateReminderStatus", { reminderId: button.dataset.reminderStatus, status: nextStatus });
+        toast("success", "Status diperbarui", nextStatus === "COMPLETED" ? "Administrasi ditandai selesai." : "Reminder diaktifkan kembali.");
+        await loadReminderData();
+        renderSidebar();
+        renderRemindersPage();
+      } catch (error) {
+        toast("error", "Status gagal diperbarui", error.message);
+      } finally {
+        button.disabled = false;
+      }
+    }));
+  }
+
+  async function handleReminderSubmit(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!form.reportValidity()) return;
+    const button = document.getElementById("reminder-save-button");
+    setButtonLoading(button, true);
+    try {
+      const data = new FormData(form);
+      const payload = {};
+      data.forEach((value, key) => { payload[key] = String(value || "").trim(); });
+      const result = await gasRequest("saveReminder", payload);
+      state.reminderBuilder = {
+        caseId: result.reminder.caseId,
+        type: result.reminder.administrationType,
+        reminderId: result.reminder.reminderId
+      };
+      toast("success", "Reminder tersimpan", `${result.reminder.administrationType} · deadline ${formatDate(result.reminder.deadlineDate)}.`);
+      await loadReminderData();
+      renderSidebar();
+      renderRemindersPage();
+    } catch (error) {
+      toast("error", "Reminder gagal disimpan", error.message || "Periksa kembali data reminder.");
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
+  function updateReminderDeadlinePreview() {
+    const type = document.getElementById("reminder-administration-type")?.value || state.reminderBuilder.type;
+    const received = document.getElementById("reminder-receivedDate")?.value || "";
+    const detention = document.getElementById("reminder-detentionEndDate")?.value || "";
+    const days = document.getElementById("reminder-deadline-days")?.value || "";
+    const date = calculateReminderDeadlinePreview(type, received, detention, days);
+    const node = document.getElementById("reminder-deadline-preview");
+    if (!node) return;
+    node.classList.toggle("ready", Boolean(date));
+    node.querySelector("strong").textContent = date ? `Deadline: ${formatDate(date)}` : "Deadline belum dapat dihitung";
+  }
+
+  function calculateReminderDeadlinePreview(type, receivedDate, detentionEndDate, daysValue) {
+    if (daysValue === "" || daysValue === null || daysValue === undefined) return "";
+    const days = Number(daysValue);
+    if (!Number.isInteger(days) || days < 0) return "";
+    const base = ["T-6", "T-7"].includes(type) ? detentionEndDate : receivedDate;
+    if (!base) return "";
+    return addDays(base, ["T-6", "T-7"].includes(type) ? -days : days);
+  }
+
+  function findReminderForSelection(caseId, type) {
+    return state.reminders.find((item) => item.caseId === caseId && item.administrationType === type) || null;
+  }
+
+  function getReminderDeadlineState(item) {
+    const days = Number.isFinite(Number(item.daysRemaining))
+      ? Number(item.daysRemaining)
+      : item.deadlineDate ? Math.ceil((parseLocalDate(item.deadlineDate) - startOfDay(new Date())) / 86400000) : null;
+    if (days === null) return { state: "safe", label: "Belum ditentukan", days: null };
+    if (days < 0) return { state: "overdue", label: `Lewat ${Math.abs(days)} hari`, days };
+    if (days <= 3) return { state: "warning", label: days === 0 ? "Hari ini" : `${days} hari lagi`, days };
+    return { state: "safe", label: `${days} hari lagi`, days };
+  }
+
+  function reminderStatusLabel(status) {
+    return status === "COMPLETED" ? "Selesai" : status === "CANCELLED" ? "Dibatalkan" : "Aktif";
+  }
+
+  function reminderLastSendLabel(status) {
+    const labels = {
+      H3_SUCCESS: "H-3 berhasil dikirim",
+      H1_SUCCESS: "H-1 berhasil dikirim",
+      H0_SUCCESS: "Hari H berhasil dikirim",
+      MANUAL_SUCCESS: "Pengiriman manual berhasil",
+      H3_FAILED: "Pengiriman H-3 gagal",
+      H1_FAILED: "Pengiriman H-1 gagal",
+      H0_FAILED: "Pengiriman Hari H gagal",
+      ADMINISTRATION_CREATED: "Selesai otomatis dari administrasi"
+    };
+    return labels[status] || "Belum ada pengiriman";
+  }
+
+  function maskPhone(value) {
+    const number = String(value || "");
+    if (number.length < 7) return number || "-";
+    return `${number.slice(0, 4)}••••${number.slice(-3)}`;
   }
 
   function renderDeadlineList(cases) {
