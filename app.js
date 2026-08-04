@@ -140,6 +140,7 @@
     stageFilter: "ALL",
     administrationBuilder: { caseId: "", type: "" },
     reminders: [],
+    reminderProgress: [],
     prosecutors: [],
     reminderMeta: { fonnteConfigured: false, triggerInstalled: false, triggerHour: 8, timezone: "Asia/Makassar" },
     remindersLoaded: false,
@@ -291,6 +292,7 @@
     state.selectedFile = null;
     state.selectedAdministrationFile = null;
     state.reminders = [];
+    state.reminderProgress = [];
     state.prosecutors = [];
     state.remindersLoaded = false;
     state.reminderBuilder = { caseId: "", type: "P-16", reminderId: "" };
@@ -1526,15 +1528,26 @@
       }
     }
 
-    const selectedCase = findReminderCaseSource(state.reminderBuilder.caseId);
-    const selectedType = state.reminderBuilder.type || "P-16";
-    const existing = selectedCase ? findReminderForSelection(selectedCase.caseId, selectedType) : null;
-    state.reminderBuilder.reminderId = existing?.reminderId || "";
+    const editingReminder = state.reminderBuilder.reminderId
+      ? state.reminders.find((item) => String(item.reminderId) === String(state.reminderBuilder.reminderId))
+      : null;
+    const selectedCaseId = editingReminder?.caseId || state.reminderBuilder.caseId;
+    const selectedType = editingReminder?.administrationType || state.reminderBuilder.type || "P-16";
+    const selectedCase = findReminderCaseSource(selectedCaseId);
+    const existing = editingReminder || (selectedCase ? findReminderForSelection(selectedCase.caseId, selectedType) : null);
+    state.reminderBuilder = {
+      caseId: selectedCaseId || "",
+      type: selectedType,
+      reminderId: existing?.reminderId || ""
+    };
 
     const active = state.reminders.filter((item) => String(item.status || "ACTIVE") === "ACTIVE");
     const dueSoon = active.filter((item) => getReminderDeadlineState(item).state === "warning").length;
     const overdue = active.filter((item) => getReminderDeadlineState(item).state === "overdue").length;
-    const completed = state.reminders.filter((item) => String(item.status) === "COMPLETED").length;
+    const completedKeys = new Set();
+    state.reminders.filter((item) => String(item.status) === "COMPLETED").forEach((item) => completedKeys.add(`${item.caseId}|${item.administrationType}`));
+    state.reminderProgress.filter((item) => Boolean(item.completed)).forEach((item) => completedKeys.add(`${item.caseId}|${item.administrationType}`));
+    const completed = completedKeys.size;
 
     els.pageContent.innerHTML = `
       <section class="reminder-shell">
@@ -1613,6 +1626,7 @@
       gasRequest("listProsecutors")
     ]);
     state.reminders = Array.isArray(reminderResult.reminders) ? reminderResult.reminders : [];
+    state.reminderProgress = Array.isArray(reminderResult.progress) ? reminderResult.progress : [];
     state.prosecutors = Array.isArray(prosecutorResult.prosecutors) ? prosecutorResult.prosecutors : [];
     state.reminderMeta = {
       fonnteConfigured: Boolean(reminderResult.fonnteConfigured),
@@ -1816,18 +1830,43 @@
     return getReminderCaseSources().find((item) => String(item.caseId) === String(caseId)) || null;
   }
 
+  function getReminderProgressStates(selectedCaseOrId) {
+    const selectedCase = typeof selectedCaseOrId === "string"
+      ? findReminderCaseSource(selectedCaseOrId)
+      : selectedCaseOrId;
+    if (!selectedCase || selectedCase.caseId === "__NEW_SPDP__") return [];
+
+    const caseId = String(selectedCase.caseId);
+    const caseReminders = state.reminders.filter((item) => String(item.caseId) === caseId);
+    const savedProgress = state.reminderProgress.filter((item) => String(item.caseId) === caseId);
+    const completedDocuments = new Set((selectedCase.administrations || []).map((item) => String(item.type || "").toUpperCase()));
+
+    return REMINDER_PROGRESS_STAGES.map((stage) => {
+      const reminder = caseReminders.find((item) => String(item.administrationType) === stage.code);
+      const progress = savedProgress.find((item) => String(item.administrationType) === stage.code);
+      const completedByDocument = completedDocuments.has(stage.code);
+      const done = completedByDocument || Boolean(progress?.completed) || reminder?.status === "COMPLETED";
+      const active = !done && reminder?.status === "ACTIVE";
+      return { ...stage, reminder, progress, done, active, completedByDocument };
+    });
+  }
+
+  function renderReminderFlowPips(statuses, compact = false) {
+    const firstPending = statuses.findIndex((item) => !item.done);
+    return `<div class="reminder-flow ${compact ? "compact" : ""}" aria-label="Progres administrasi">
+      <div class="reminder-flow-pips">
+        ${statuses.map((item, index) => `<span class="${item.done ? "complete" : ""} ${index === firstPending ? "current" : ""}" title="${escapeAttr(item.code + " — " + item.label)}"></span>`).join("")}
+      </div>
+      ${compact ? "" : `<div class="reminder-flow-labels">${statuses.map((item) => `<small class="${item.done ? "complete" : ""}">${escapeHtml(item.code)}</small>`).join("")}</div>`}
+    </div>`;
+  }
+
   function renderReminderProgress(selectedCase) {
     if (!selectedCase || selectedCase.caseId === "__NEW_SPDP__") {
       return `<div class="reminder-progress-empty"><span>↳</span><strong>${selectedCase ? "SPDP baru belum disimpan" : "Belum ada perkara dipilih"}</strong><small>${selectedCase ? "Progres akan terbentuk setelah reminder pertama disimpan." : "Progres akan muncul setelah memilih SPDP."}</small></div>`;
     }
-    const caseReminders = state.reminders.filter((item) => item.caseId === selectedCase.caseId);
-    const completedDocuments = new Set((selectedCase.administrations || []).map((item) => String(item.type || "").toUpperCase()));
-    const statuses = REMINDER_PROGRESS_STAGES.map((stage) => {
-      const reminder = caseReminders.find((item) => item.administrationType === stage.code);
-      const done = completedDocuments.has(stage.code) || reminder?.status === "COMPLETED";
-      const active = reminder?.status === "ACTIVE";
-      return { ...stage, reminder, done, active };
-    });
+
+    const statuses = getReminderProgressStates(selectedCase);
     const completedCount = statuses.filter((item) => item.done).length;
     const percentage = Math.round((completedCount / REMINDER_PROGRESS_STAGES.length) * 100);
 
@@ -1836,20 +1875,41 @@
         <div><strong>${escapeHtml(selectedCase.suspectName || selectedCase.caseId)}</strong><small>SPDP ${escapeHtml(selectedCase.spdpNumber || "-")}</small></div>
         <span>${completedCount}/${REMINDER_PROGRESS_STAGES.length}</span>
       </div>
+      ${renderReminderFlowPips(statuses)}
       <div class="administration-progress"><span style="width:${percentage}%"></span></div>
-      <div class="reminder-stage-list">
-        ${statuses.map((item, index) => {
-          const stateClass = item.done ? "complete" : item.active ? "active" : "pending";
-          const statusText = item.done ? "Selesai" : item.active
-            ? `Reminder aktif · ${formatDate(item.reminder.deadlineDate)}`
-            : "Belum dibuat";
-          return `<div class="reminder-stage-item ${stateClass}">
-            <div class="reminder-stage-track"><span>${item.done ? "✓" : index + 1}</span><i></i></div>
-            <div><strong>${escapeHtml(item.code)} — ${escapeHtml(item.label)}</strong><small>${escapeHtml(statusText)}</small></div>
-          </div>`;
+      <div class="reminder-progress-checklist">
+        ${statuses.map((item) => {
+          const statusText = item.completedByDocument
+            ? "Selesai otomatis dari administrasi"
+            : item.done
+              ? `Selesai${item.progress?.completedBy ? ` · ${item.progress.completedBy}` : ""}`
+              : item.active
+                ? `Reminder aktif · ${formatDate(item.reminder.deadlineDate)}`
+                : "Belum selesai";
+          return `<label class="reminder-progress-check ${item.done ? "complete" : ""} ${item.active ? "active" : ""}">
+            <input type="checkbox"
+              data-reminder-progress-toggle
+              data-case-id="${escapeAttr(selectedCase.caseId)}"
+              data-administration-type="${escapeAttr(item.code)}"
+              ${item.done ? "checked" : ""}
+              ${item.completedByDocument ? "disabled" : ""} />
+            <span class="reminder-check-box">${item.done ? "✓" : ""}</span>
+            <span class="reminder-check-copy"><strong>${escapeHtml(item.code)} — ${escapeHtml(item.label)}</strong><small>${escapeHtml(statusText)}</small></span>
+          </label>`;
         }).join("")}
       </div>
-      <p class="reminder-progress-note">P-19 dan P-21 mengikuti hasil penelitian berkas. P-18, T-6, dan T-7 dapat ditandai selesai dari daftar reminder.</p>`;
+      <p class="reminder-progress-note">Checklist dapat diperbarui administrator. Tahap yang sudah dibuat melalui menu administrasi dikunci sebagai selesai agar data progres tetap konsisten.</p>`;
+  }
+
+  function renderReminderTableProgress(caseId) {
+    const statuses = getReminderProgressStates(caseId);
+    if (!statuses.length) return '<span class="case-secondary">Belum tersedia</span>';
+    const completed = statuses.filter((item) => item.done).length;
+    const next = statuses.find((item) => !item.done);
+    return `<div class="reminder-table-progress">
+      ${renderReminderFlowPips(statuses, true)}
+      <small>${completed}/${statuses.length} selesai${next ? ` · berikutnya ${escapeHtml(next.code)}` : " · seluruh tahap selesai"}</small>
+    </div>`;
   }
 
   function renderReminderTable() {
@@ -1862,24 +1922,29 @@
     if (!items.length) return emptyState("♢", "Belum ada reminder", "Simpan reminder baru untuk mulai mengirim notifikasi WhatsApp.");
 
     return `<div class="table-wrap"><table class="reminder-table">
-      <thead><tr><th>SPDP / Tersangka</th><th>Administrasi</th><th>Jaksa</th><th>Deadline</th><th>Pengiriman</th><th>Status</th><th>Aksi</th></tr></thead>
+      <thead><tr><th>SPDP / Tersangka</th><th>Administrasi</th><th>Jaksa</th><th>Deadline</th><th>Progres administrasi</th><th>Pengiriman</th><th>Status</th><th>Aksi</th></tr></thead>
       <tbody>${items.map((item) => {
         const deadline = getReminderDeadlineState(item);
         const statusTone = item.status === "COMPLETED" ? "green" : item.status === "CANCELLED" ? "gray" : deadline.state === "overdue" ? "red" : deadline.state === "warning" ? "amber" : "blue";
         const typeLabel = item.administrationType === "T-7" && item.detentionCategory
           ? `${item.administrationType} · ${item.detentionCategory === "ANAK" ? "Tahanan Anak" : "Tahanan Dewasa"}`
           : item.administrationType;
+        const stageProgress = getReminderProgressStates(item.caseId).find((stage) => stage.code === item.administrationType);
+        const lockedByAdministration = Boolean(stageProgress?.completedByDocument);
         return `<tr>
           <td><div class="case-primary">${escapeHtml(item.spdpNumber || item.caseId)}</div><div class="case-secondary">${escapeHtml(item.suspectName || "-")} · ${escapeHtml(item.caseId || "-")}</div></td>
           <td><span class="status-badge blue">${escapeHtml(typeLabel)}</span><div class="case-secondary">${Number(item.deadlineDays || 0)} hari</div></td>
           <td><div class="case-primary">${escapeHtml(item.prosecutorName || "-")}</div><div class="case-secondary">${maskPhone(item.prosecutorPhone)}</div></td>
           <td><span class="deadline-badge ${deadline.state}">${escapeHtml(deadline.label)}</span><div class="case-secondary">${formatDate(item.deadlineDate)}</div></td>
+          <td>${renderReminderTableProgress(item.caseId)}</td>
           <td>${renderReminderSendPills(item)}<div class="case-secondary">${escapeHtml(reminderLastSendLabel(item.lastSendStatus))}</div></td>
           <td><span class="status-badge ${statusTone}">${escapeHtml(reminderStatusLabel(item.status))}</span></td>
           <td><div class="reminder-row-actions">
             <button class="table-action" data-reminder-edit="${escapeAttr(item.reminderId)}" type="button">Edit</button>
             <button class="table-action" data-reminder-send="${escapeAttr(item.reminderId)}" type="button">Kirim sekarang</button>
-            <button class="table-action" data-reminder-status="${escapeAttr(item.reminderId)}" data-next-status="${item.status === "COMPLETED" ? "ACTIVE" : "COMPLETED"}" type="button">${item.status === "COMPLETED" ? "Aktifkan" : "Tandai selesai"}</button>
+            ${lockedByAdministration
+              ? '<button class="table-action" type="button" disabled title="Tahap sudah selesai dari menu administrasi">Selesai dari administrasi</button>'
+              : `<button class="table-action" data-reminder-status="${escapeAttr(item.reminderId)}" data-next-status="${item.status === "COMPLETED" ? "ACTIVE" : "COMPLETED"}" type="button">${item.status === "COMPLETED" ? "Aktifkan" : "Tandai selesai"}</button>`}
           </div></td>
         </tr>`;
       }).join("")}</tbody>
@@ -1929,6 +1994,29 @@
       state.reminderBuilder = { caseId: reminder.caseId, type: reminder.administrationType, reminderId: reminder.reminderId };
       window.scrollTo({ top: 0, behavior: "smooth" });
       renderRemindersPage();
+    }));
+
+    document.querySelectorAll("[data-reminder-progress-toggle]").forEach((checkbox) => checkbox.addEventListener("change", async () => {
+      const completed = checkbox.checked;
+      checkbox.disabled = true;
+      try {
+        await gasRequest("updateReminderProgress", {
+          caseId: checkbox.dataset.caseId,
+          administrationType: checkbox.dataset.administrationType,
+          completed,
+          spdpNumber: selectedCase?.spdpNumber || "",
+          suspectName: selectedCase?.suspectName || ""
+        });
+        toast("success", "Progres diperbarui", `${checkbox.dataset.administrationType} ${completed ? "ditandai selesai" : "dikembalikan menjadi belum selesai"}.`);
+        await loadReminderData();
+        renderSidebar();
+        renderRemindersPage();
+      } catch (error) {
+        checkbox.checked = !completed;
+        toast("error", "Progres gagal diperbarui", error.message || "Perubahan checklist belum tersimpan.");
+      } finally {
+        checkbox.disabled = false;
+      }
     }));
 
     document.querySelectorAll("[data-reminder-send]").forEach((button) => button.addEventListener("click", async () => {
