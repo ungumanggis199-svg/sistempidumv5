@@ -1945,6 +1945,7 @@
             ${lockedByAdministration
               ? '<button class="table-action" type="button" disabled title="Tahap sudah selesai dari menu administrasi">Selesai dari administrasi</button>'
               : `<button class="table-action" data-reminder-status="${escapeAttr(item.reminderId)}" data-next-status="${item.status === "COMPLETED" ? "ACTIVE" : "COMPLETED"}" type="button">${item.status === "COMPLETED" ? "Aktifkan" : "Tandai selesai"}</button>`}
+            <button class="table-action reminder-delete-action" data-reminder-delete="${escapeAttr(item.reminderId)}" type="button">Hapus</button>
           </div></td>
         </tr>`;
       }).join("")}</tbody>
@@ -2048,6 +2049,38 @@
         renderRemindersPage();
       } catch (error) {
         toast("error", "Status gagal diperbarui", error.message);
+      } finally {
+        button.disabled = false;
+      }
+    }));
+
+
+    document.querySelectorAll("[data-reminder-delete]").forEach((button) => button.addEventListener("click", async () => {
+      const reminder = state.reminders.find((item) => item.reminderId === button.dataset.reminderDelete);
+      if (!reminder) return;
+
+      const confirmed = window.confirm(
+        `Hapus reminder ${reminder.administrationType} untuk ${reminder.suspectName || reminder.spdpNumber}?
+
+` +
+        "Reminder tidak akan lagi dikirim otomatis. Progres administrasi dan log pengiriman tetap disimpan sebagai riwayat audit."
+      );
+      if (!confirmed) return;
+
+      button.disabled = true;
+      try {
+        await gasRequest("deleteReminder", { reminderId: reminder.reminderId });
+
+        if (String(state.reminderBuilder.reminderId || "") === String(reminder.reminderId)) {
+          state.reminderBuilder = { caseId: "", type: "P-16", reminderId: "" };
+        }
+
+        toast("success", "Reminder dihapus", `${reminder.administrationType} untuk ${reminder.suspectName || reminder.spdpNumber} telah dihapus.`);
+        await loadReminderData();
+        renderSidebar();
+        renderRemindersPage();
+      } catch (error) {
+        toast("error", "Reminder gagal dihapus", error.message || "Data reminder belum berhasil dihapus.");
       } finally {
         button.disabled = false;
       }
