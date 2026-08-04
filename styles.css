@@ -989,3 +989,110 @@ body { background: var(--pidum-paper); }
   .reminder-list-actions { width: 100%; }
   .reminder-list-actions > * { flex: 1; }
 }
+
+/* =========================================================
+   Reminder V4.2 — checklist progres dan alur administrasi
+   ========================================================= */
+.reminder-flow { margin-top: 16px; }
+.reminder-flow-pips {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(18px, 1fr));
+  align-items: center;
+  gap: 6px;
+}
+.reminder-flow-pips span {
+  display: block;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--pidum-line, var(--gray-200));
+  transition: .2s ease;
+}
+.reminder-flow-pips span.complete { background: var(--pidum-gold, var(--gold-600)); }
+.reminder-flow-pips span.current {
+  background: var(--gold-100);
+  box-shadow: inset 0 0 0 1px var(--pidum-gold, var(--gold-600));
+}
+.reminder-flow-labels {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(18px, 1fr));
+  gap: 6px;
+  margin-top: 7px;
+}
+.reminder-flow-labels small {
+  text-align: center;
+  color: var(--gray-400);
+  font-size: 8px;
+  font-weight: 800;
+}
+.reminder-flow-labels small.complete { color: var(--gold-600); }
+.reminder-flow.compact { margin: 0; min-width: 165px; }
+.reminder-flow.compact .reminder-flow-pips { gap: 4px; }
+.reminder-flow.compact .reminder-flow-pips span { height: 6px; }
+
+.reminder-progress-checklist {
+  display: grid;
+  gap: 8px;
+  margin-top: 15px;
+}
+.reminder-progress-check {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 11px 12px;
+  border: 1px solid var(--gray-200);
+  border-radius: 11px;
+  background: white;
+  cursor: pointer;
+  transition: .18s ease;
+}
+.reminder-progress-check:hover { border-color: var(--gold-500); transform: translateY(-1px); }
+.reminder-progress-check.complete { border-color: #b7dfcc; background: #fbfffd; }
+.reminder-progress-check.active { border-color: var(--gold-500); background: #fffdf7; }
+.reminder-progress-check input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.reminder-progress-check input:disabled ~ * { opacity: .78; }
+.reminder-progress-check:has(input:disabled) { cursor: not-allowed; }
+.reminder-check-box {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--gray-300);
+  border-radius: 7px;
+  background: white;
+  color: white;
+  font-size: 12px;
+  font-weight: 800;
+}
+.reminder-progress-check.complete .reminder-check-box {
+  border-color: var(--green-700);
+  background: var(--green-700);
+}
+.reminder-progress-check.active .reminder-check-box {
+  border-color: var(--gold-600);
+  background: var(--gold-100);
+  color: var(--gold-700, var(--amber-700));
+}
+.reminder-check-copy strong,
+.reminder-check-copy small { display: block; }
+.reminder-check-copy strong { color: var(--gray-800); font-size: 11px; line-height: 1.4; }
+.reminder-check-copy small { margin-top: 3px; color: var(--gray-500); font-size: 9px; line-height: 1.4; }
+
+.reminder-table-progress { min-width: 185px; }
+.reminder-table-progress > small {
+  display: block;
+  margin-top: 6px;
+  color: var(--gray-500);
+  font-size: 9px;
+  line-height: 1.35;
+}
+.reminder-table { min-width: 1420px; }
+
+@media (max-width: 700px) {
+  .reminder-flow-labels small { font-size: 7px; }
+}
