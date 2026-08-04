@@ -1707,16 +1707,18 @@
         <div class="reminder-selector-grid">
           <div class="form-field">
             <label for="reminder-case-select">Pilih SPDP/perkara <span class="required">*</span></label>
-            <select id="reminder-case-select" required>
+            <select id="reminder-case-select" required ${existing ? "disabled" : ""}>
               <option value="">Pilih SPDP/perkara...</option>
               <option value="__NEW_SPDP__" ${isNewSpdp ? "selected" : ""}>＋ SPDP baru — isi data secara manual</option>
               ${caseOptions}
             </select>
+            ${existing ? '<small class="form-hint">Perkara dikunci selama mode edit agar reminder yang sama diperbarui.</small>' : ""}
           </div>
           <div class="form-field">
             <label for="reminder-administration-type">Jenis Administrasi <span class="required">*</span></label>
-            <select id="reminder-administration-type" name="administrationType" required>${typeOptions}</select>
-            <small class="form-hint">Pilih administrasi yang sama untuk membuka dan mengedit reminder lama.</small>
+            ${existing ? `<input type="hidden" name="administrationType" value="${escapeAttr(selectedType)}" />` : ""}
+            <select id="reminder-administration-type" ${existing ? "disabled" : 'name="administrationType"'} required>${typeOptions}</select>
+            <small class="form-hint">${existing ? "Jenis administrasi dikunci selama mode edit." : "Pilih administrasi yang sama untuk membuka dan mengedit reminder lama."}</small>
           </div>
         </div>
 
@@ -2097,13 +2099,19 @@
       const data = new FormData(form);
       const payload = {};
       data.forEach((value, key) => { payload[key] = String(value || "").trim(); });
-      const result = await gasRequest("saveReminder", payload);
+      const isEdit = Boolean(payload.reminderId);
+      const action = isEdit ? "updateReminder" : "createReminder";
+      const result = await gasRequest(action, payload);
       state.reminderBuilder = {
         caseId: result.reminder.caseId,
         type: result.reminder.administrationType,
         reminderId: result.reminder.reminderId
       };
-      toast("success", "Reminder tersimpan", `${result.reminder.administrationType} · deadline ${formatDate(result.reminder.deadlineDate)}.`);
+      toast(
+        "success",
+        isEdit ? "Reminder diperbarui" : "Reminder dibuat",
+        `${result.reminder.administrationType} · deadline ${formatDate(result.reminder.deadlineDate)}.`
+      );
       await loadReminderData();
       renderSidebar();
       renderRemindersPage();
