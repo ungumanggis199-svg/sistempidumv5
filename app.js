@@ -1747,7 +1747,7 @@
           <div class="form-field">
             <label for="reminder-prosecutor">Jaksa Penanggung Jawab <span class="required">*</span></label>
             <select id="reminder-prosecutor" name="prosecutorId" required>
-              <option value="">Pilih Jaksa dari sheet List Jaksa...</option>
+              <option value="">Pilih Jaksa </option>
               ${prosecutorOptions}
             </select>
             <small class="form-hint">Dropdown hanya menampilkan nama. Nomor WhatsApp tetap dibaca dari sheet List Jaksa.</small>
