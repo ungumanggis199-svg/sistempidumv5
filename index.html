@@ -55,27 +55,43 @@
           <p>Pilih peran, lalu masukkan nama pengguna dan kata sandi.</p>
         </div>
 
-        <div class="role-selector" role="radiogroup" aria-label="Pilih peran pengguna">
-          <label class="role-option active" data-role-card="jaksa">
-            <input type="radio" name="role" value="jaksa" checked />
-            <span class="role-icon role-icon-image" aria-hidden="true">
-              <img src="https://raw.githubusercontent.com/ungumanggis199-svg/sistempidumv5/refs/heads/main/LOGO/Pidum.png" alt="" />
-            </span>
-            <span>
-              <strong>KEJAKSAAN</strong>
-              <small>Dashboard dan pengelolaan perkara</small>
-            </span>
-          </label>
-          <label class="role-option" data-role-card="penyidik">
-            <input type="radio" name="role" value="penyidik" />
-            <span class="role-icon role-icon-image" aria-hidden="true">
-              <img src="https://raw.githubusercontent.com/ungumanggis199-svg/sistempidumv5/refs/heads/main/LOGO/reserse.png" alt="" />
-            </span>
-              <strong>KEPOLISIAN</strong>
-              <small>Form pengiriman SPDP</small>
-            </span>
-          </label>
-        </div>
+<div class="role-selector" role="radiogroup" aria-label="Pilih peran pengguna">
+
+  <!-- KEJAKSAAN -->
+  <label class="role-option active" data-role-card="jaksa">
+    <input type="radio" name="role" value="jaksa" checked />
+
+    <span class="role-icon role-icon-image" aria-hidden="true">
+      <img
+        src="https://raw.githubusercontent.com/ungumanggis199-svg/sistempidumv5/refs/heads/main/LOGO/LOGO-JAMPIDUM-FIX.png"
+        alt=""
+      />
+    </span>
+
+    <span class="role-copy">
+      <strong>KEJAKSAAN</strong>
+      <small>Dashboard dan<br />pengelolaan perkara</small>
+    </span>
+  </label>
+
+  <!-- KEPOLISIAN -->
+  <label class="role-option" data-role-card="penyidik">
+    <input type="radio" name="role" value="penyidik" />
+
+    <span class="role-icon role-icon-image" aria-hidden="true">
+      <img
+        src="https://raw.githubusercontent.com/ungumanggis199-svg/sistempidumv5/refs/heads/main/LOGO/reserse.png"
+        alt=""
+      />
+    </span>
+
+    <span class="role-copy">
+      <strong>KEPOLISIAN</strong>
+      <small>Form pengiriman<br />SPDP</small>
+    </span>
+  </label>
+
+</div>
 
         <label class="field-label" for="login-username">Nama pengguna</label>
         <div class="input-with-icon">
