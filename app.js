@@ -1946,7 +1946,7 @@
           <td><span class="status-badge ${statusTone}">${escapeHtml(reminderStatusLabel(item.status))}</span></td>
           <td><div class="reminder-row-actions">
             <button class="table-action" data-reminder-edit="${escapeAttr(item.reminderId)}" type="button">Edit</button>
-            <button class="table-action" data-reminder-send="${escapeAttr(item.reminderId)}" type="button">Kirim sekarang</button>
+            <button class="table-action" data-reminder-send="${escapeAttr(item.reminderId)}" type="button">Kirim pengingat</button>
             ${lockedByAdministration
               ? '<button class="table-action" type="button" disabled title="Tahap sudah selesai dari menu administrasi">Selesai dari administrasi</button>'
               : `<button class="table-action" data-reminder-status="${escapeAttr(item.reminderId)}" data-next-status="${item.status === "COMPLETED" ? "ACTIVE" : "COMPLETED"}" type="button">${item.status === "COMPLETED" ? "Aktifkan" : "Tandai selesai"}</button>`}
