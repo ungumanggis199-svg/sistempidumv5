@@ -1532,7 +1532,9 @@
       ? state.reminders.find((item) => String(item.reminderId) === String(state.reminderBuilder.reminderId))
       : null;
     const selectedCaseId = editingReminder?.caseId || state.reminderBuilder.caseId;
-    const selectedType = editingReminder?.administrationType || state.reminderBuilder.type || "P-16";
+    // Saat mode edit, pilihan terbaru dari dropdown harus didahulukan.
+    // Jika editingReminder didahulukan, jenis administrasi akan kembali ke nilai lama.
+    const selectedType = state.reminderBuilder.type || editingReminder?.administrationType || "P-16";
     const selectedCase = findReminderCaseSource(selectedCaseId);
     const existing = editingReminder || (selectedCase ? findReminderForSelection(selectedCase.caseId, selectedType) : null);
     state.reminderBuilder = {
@@ -1682,7 +1684,8 @@
     const rule = REMINDER_ADMIN_TYPES.find((item) => item.code === selectedType) || REMINDER_ADMIN_TYPES[0];
     const isNewSpdp = selectedCase.caseId === "__NEW_SPDP__";
     const source = existing || (isNewSpdp ? {} : selectedCase);
-    const deadlineDays = existing
+    const typeChanged = Boolean(existing && String(existing.administrationType || "") !== String(selectedType || ""));
+    const deadlineDays = existing && !typeChanged
       ? String(existing.deadlineDays ?? "")
       : rule.defaultDays === null ? "" : String(rule.defaultDays);
     const isDetention = ["T-6", "T-7"].includes(selectedType);
@@ -1703,6 +1706,7 @@
         <input type="hidden" name="reminderId" value="${escapeAttr(existing?.reminderId || "")}" />
         <input type="hidden" name="caseId" value="${escapeAttr(isNewSpdp ? "" : selectedCase.caseId)}" />
         <input type="hidden" name="isNewSpdp" value="${isNewSpdp ? "1" : "0"}" />
+        <input type="hidden" name="originalAdministrationType" value="${escapeAttr(existing?.administrationType || "")}" />
 
         <div class="reminder-selector-grid">
           <div class="form-field">
@@ -1716,9 +1720,8 @@
           </div>
           <div class="form-field">
             <label for="reminder-administration-type">Jenis Administrasi <span class="required">*</span></label>
-            ${existing ? `<input type="hidden" name="administrationType" value="${escapeAttr(selectedType)}" />` : ""}
-            <select id="reminder-administration-type" ${existing ? "disabled" : 'name="administrationType"'} required>${typeOptions}</select>
-            <small class="form-hint">${existing ? "Jenis administrasi dikunci selama mode edit." : "Pilih administrasi yang sama untuk membuka dan mengedit reminder lama."}</small>
+            <select id="reminder-administration-type" name="administrationType" required>${typeOptions}</select>
+            <small class="form-hint">${existing ? "Jenis administrasi dapat diubah. Sistem tetap memperbarui reminder yang sedang diedit." : "Pilih administrasi yang sama untuk membuka dan mengedit reminder lama."}</small>
           </div>
         </div>
 
@@ -1969,8 +1972,28 @@
       renderRemindersPage();
     });
     document.getElementById("reminder-administration-type")?.addEventListener("change", (event) => {
-      state.reminderBuilder.type = event.target.value;
-      state.reminderBuilder.reminderId = "";
+      const nextType = event.target.value;
+
+      // Cegah dua reminder dengan jenis yang sama pada perkara yang sama.
+      const duplicate = selectedCase
+        ? state.reminders.find((item) =>
+            String(item.caseId) === String(selectedCase.caseId) &&
+            String(item.administrationType) === String(nextType) &&
+            String(item.reminderId) !== String(existing?.reminderId || "")
+          )
+        : null;
+
+      if (duplicate) {
+        toast("warning", "Jenis administrasi sudah digunakan", `${nextType} sudah memiliki reminder untuk perkara ini. Edit reminder tersebut atau pilih jenis lain.`);
+        event.target.value = selectedType;
+        return;
+      }
+
+      state.reminderBuilder.type = nextType;
+
+      // Pertahankan reminderId saat edit agar submit tetap memanggil updateReminder.
+      if (!existing) state.reminderBuilder.reminderId = "";
+
       renderRemindersPage();
     });
     document.getElementById("reminder-form")?.addEventListener("submit", handleReminderSubmit);
