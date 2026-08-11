@@ -151,7 +151,11 @@
     reminderMeta: { fonnteConfigured: false, triggerInstalled: false, triggerHour: 8, timezone: "Asia/Makassar" },
     remindersLoaded: false,
     reminderBuilder: { caseId: "", type: "P-16", reminderId: "" },
-    reminderFilter: "ALL"
+    reminderFilter: "ALL",
+    tikReminders: [],
+    tikMeta: { intelijenCount: 0, validPhoneCount: 0, fonnteConfigured: false },
+    tikLoaded: false,
+    tikSelectedFiles: []
   };
 
   const els = {};
@@ -302,6 +306,10 @@
     state.prosecutors = [];
     state.remindersLoaded = false;
     state.reminderBuilder = { caseId: "", type: "P-16", reminderId: "" };
+    state.tikReminders = [];
+    state.tikMeta = { intelijenCount: 0, validPhoneCount: 0, fonnteConfigured: false };
+    state.tikLoaded = false;
+    state.tikSelectedFiles = [];
     els.modalRoot.innerHTML = "";
     showLogin();
     toast("info", "Sesi diakhiri", "Anda telah keluar dari aplikasi.");
@@ -335,6 +343,7 @@
           { id: "deadlines", icon: "◷", label: "Tenggat Waktu", badge: urgentCount || "" },
           { section: "ADMINISTRASI" },
           { id: "reminders", icon: "♢", label: "Reminder WhatsApp", badge: reminderUrgentCount || "" },
+          { id: "tik-reminders", icon: "▥", label: "Kartu TIK" },
           { id: "administration-builder", icon: "▣", label: "Buat Administrasi" },
           { id: "documents", icon: "▧", label: "Dokumen SPDP" },
           { id: "investigators", icon: "♙", label: "Penyidik" },
@@ -390,6 +399,7 @@
       investigators: ["Data Penyidik", "MITRA KERJA", renderInvestigatorsPage],
       workflow: ["Alur Administrasi", "PEDOMAN KERJA", renderWorkflowPage],
       reminders: ["Reminder WhatsApp", "PENGAWASAN ADMINISTRASI", renderRemindersPage],
+      "tik-reminders": ["Kartu TIK", "REMINDER INTELIJEN", renderTikReminderPage],
       "administration-builder": ["Buat Administrasi", "FORM OTOMATIS", renderAdministrationBuilderPage],
       settings: ["Pengaturan", "KONFIGURASI", renderSettingsPage],
       "submit-spdp": ["Pengiriman SPDP", "FORM PENYIDIK", renderInvestigatorForm]
@@ -1517,6 +1527,372 @@
     }
   }
 
+  async function renderTikReminderPage() {
+    if (!state.tikLoaded) {
+      els.pageContent.innerHTML = `
+        <div class="panel loading-panel">
+          <div class="skeleton loading-line w40"></div>
+          <div class="skeleton loading-line w90"></div>
+          <div class="skeleton loading-line w65"></div>
+          <div class="skeleton" style="height:180px"></div>
+        </div>`;
+      try {
+        await loadTikReminderData();
+        return renderTikReminderPage();
+      } catch (error) {
+        els.pageContent.innerHTML = `
+          <div class="panel">
+            <div class="empty-state">
+              <div class="empty-state-icon">!</div>
+              <h3>Modul Kartu TIK belum siap</h3>
+              <p>${escapeHtml(error?.message || "Data Kartu TIK tidak dapat dimuat.")}</p>
+              <button id="retry-tik-load" class="primary-button" style="margin-top:18px" type="button">Coba lagi</button>
+            </div>
+          </div>`;
+        document.getElementById("retry-tik-load")?.addEventListener("click", () => {
+          state.tikLoaded = false;
+          renderTikReminderPage();
+        });
+        return;
+      }
+    }
+
+    const sentCount = state.tikReminders.filter((item) => String(item.status || "").toUpperCase() === "SENT").length;
+    const partialCount = state.tikReminders.filter((item) => String(item.status || "").toUpperCase() === "PARTIAL").length;
+
+    els.pageContent.innerHTML = `
+      <section class="reminder-shell">
+        <div class="reminder-hero">
+          <div>
+            <p class="eyebrow green">KARTU TIK</p>
+            <h2>Reminder Kartu TIK ke Agen Intelijen</h2>
+            <p>Masukkan nama tersangka dan unggah seluruh file identitas. Setelah dikirim, sistem meneruskan informasi nama tersangka beserta tautan download file ke seluruh anggota Intelijen aktif pada sheet <strong>List Intelijen</strong>.</p>
+          </div>
+          <div class="reminder-system-status">
+            <span class="${state.tikMeta.fonnteConfigured && state.tikMeta.validPhoneCount > 0 ? "online" : "offline"}"></span>
+            <div>
+              <strong>${state.tikMeta.fonnteConfigured ? "Fonnte siap" : "Token Fonnte belum diatur"}</strong>
+              <small>${state.tikMeta.validPhoneCount} nomor WhatsApp valid dari ${state.tikMeta.intelijenCount} anggota Intelijen aktif</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats-grid reminder-stats-grid">
+          ${statCard("♙", state.tikMeta.intelijenCount, "Intelijen aktif", "blue")}
+          ${statCard("☎", state.tikMeta.validPhoneCount, "Nomor WA valid", "")}
+          ${statCard("✓", sentCount, "Reminder terkirim", "")}
+          ${statCard("!", partialCount, "Terkirim sebagian", "warning")}
+        </div>
+
+        <section class="panel reminder-form-panel">
+          <div class="panel-header">
+            <div>
+              <h3>Kirim Reminder Kartu TIK</h3>
+              <p>Jumlah file yang dapat dipilih tidak dibatasi oleh antarmuka. Setiap file diunggah satu per satu agar lebih stabil.</p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <form id="tik-reminder-form" novalidate>
+              <div class="form-grid">
+                <div class="form-field full-span">
+                  <label for="tik-suspect-name">Nama Tersangka <span class="required">*</span></label>
+                  <input id="tik-suspect-name" name="suspectName" type="text" maxlength="250" required placeholder="Masukkan nama lengkap tersangka" />
+                </div>
+
+                <div class="form-field full-span">
+                  <label>File Identitas Tersangka <span class="required">*</span></label>
+                  <div id="tik-upload-zone" class="upload-zone">
+                    <input id="tik-identity-files" name="identityFiles" type="file" multiple />
+                    <div class="upload-icon">⇧</div>
+                    <h4>Pilih atau tarik file identitas ke sini</h4>
+                    <p>Anda dapat memilih banyak file sekaligus dan dapat menambahkan file lagi setelah pemilihan pertama. Format file tidak dibatasi oleh frontend; batas teknis tetap mengikuti Google Apps Script dan Google Drive.</p>
+                    <button id="tik-choose-files" class="secondary-button" type="button" style="margin-top:14px">Pilih file</button>
+                    <div id="tik-selected-files"></div>
+                    <div class="progress-bar"><span id="tik-upload-progress"></span></div>
+                    <p id="tik-upload-status" style="margin-top:8px"></p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-submit-row">
+                <button id="tik-reset-form" class="ghost-button" type="button">Kosongkan form</button>
+                <button id="tik-send-reminder" class="primary-button" type="submit">
+                  <span class="button-label">Kirim Reminder Kartu TIK</span>
+                  <span class="button-spinner" hidden></span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <section class="panel reminder-list-panel">
+          <div class="panel-header">
+            <div>
+              <h3>Riwayat Kartu TIK</h3>
+              <p>Daftar reminder Kartu TIK terakhir beserta hasil pengiriman WhatsApp.</p>
+            </div>
+            <button id="tik-refresh" class="table-action" type="button">Segarkan</button>
+          </div>
+          ${renderTikReminderHistory()}
+        </section>
+      </section>`;
+
+    bindTikReminderPage();
+    renderTikSelectedFiles();
+  }
+
+  async function loadTikReminderData() {
+    const result = await gasRequest("listTikReminders");
+    state.tikReminders = Array.isArray(result.reminders) ? result.reminders : [];
+    state.tikMeta = {
+      intelijenCount: Number(result.intelijenCount || 0),
+      validPhoneCount: Number(result.validPhoneCount || 0),
+      fonnteConfigured: Boolean(result.fonnteConfigured)
+    };
+    state.tikLoaded = true;
+    setConnection(true);
+  }
+
+  function bindTikReminderPage() {
+    const form = document.getElementById("tik-reminder-form");
+    const fileInput = document.getElementById("tik-identity-files");
+    const uploadZone = document.getElementById("tik-upload-zone");
+    const chooseButton = document.getElementById("tik-choose-files");
+
+    chooseButton?.addEventListener("click", () => fileInput?.click());
+    fileInput?.addEventListener("change", () => {
+      appendTikFiles(fileInput.files);
+      fileInput.value = "";
+    });
+
+    ["dragenter", "dragover"].forEach((name) => uploadZone?.addEventListener(name, (event) => {
+      event.preventDefault();
+      uploadZone.classList.add("dragover");
+    }));
+    ["dragleave", "drop"].forEach((name) => uploadZone?.addEventListener(name, (event) => {
+      event.preventDefault();
+      uploadZone.classList.remove("dragover");
+    }));
+    uploadZone?.addEventListener("drop", (event) => {
+      appendTikFiles(event.dataTransfer?.files);
+    });
+
+    form?.addEventListener("submit", submitTikReminder);
+    document.getElementById("tik-reset-form")?.addEventListener("click", resetTikReminderForm);
+    document.getElementById("tik-refresh")?.addEventListener("click", async () => {
+      const button = document.getElementById("tik-refresh");
+      if (button) button.disabled = true;
+      try {
+        state.tikLoaded = false;
+        await loadTikReminderData();
+        renderTikReminderPage();
+      } catch (error) {
+        toast("error", "Gagal menyegarkan", error.message || "Data Kartu TIK belum dapat dimuat.");
+      } finally {
+        if (button) button.disabled = false;
+      }
+    });
+  }
+
+  function appendTikFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    state.tikSelectedFiles.push(...files);
+    renderTikSelectedFiles();
+  }
+
+  function renderTikSelectedFiles() {
+    const root = document.getElementById("tik-selected-files");
+    if (!root) return;
+    if (!state.tikSelectedFiles.length) {
+      root.innerHTML = `<div style="margin-top:12px;color:var(--gray-500);font-size:12px">Belum ada file dipilih.</div>`;
+      return;
+    }
+
+    const totalBytes = state.tikSelectedFiles.reduce((sum, file) => sum + Number(file.size || 0), 0);
+    root.innerHTML = `
+      <div style="margin-top:12px;text-align:left">
+        <small style="display:block;margin-bottom:8px;color:var(--gray-600)">${state.tikSelectedFiles.length} file dipilih · total ${formatBytes(totalBytes)}</small>
+        ${state.tikSelectedFiles.map((file, index) => `
+          <div class="upload-file-card">
+            <div class="upload-file-meta">
+              <strong>${escapeHtml(file.name)}</strong>
+              <small>${formatBytes(file.size)} · ${escapeHtml(file.type || "Tipe file tidak terdeteksi")}</small>
+            </div>
+            <button class="table-action" data-remove-tik-file="${index}" type="button">Hapus</button>
+          </div>`).join("")}
+      </div>`;
+
+    root.querySelectorAll("[data-remove-tik-file]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const index = Number(button.dataset.removeTikFile);
+        if (!Number.isInteger(index) || index < 0 || index >= state.tikSelectedFiles.length) return;
+        state.tikSelectedFiles.splice(index, 1);
+        renderTikSelectedFiles();
+      });
+    });
+  }
+
+  function resetTikReminderForm() {
+    state.tikSelectedFiles = [];
+    const form = document.getElementById("tik-reminder-form");
+    form?.reset();
+    const progress = document.getElementById("tik-upload-progress");
+    const status = document.getElementById("tik-upload-status");
+    if (progress) progress.style.width = "0";
+    if (status) status.textContent = "";
+    renderTikSelectedFiles();
+  }
+
+  async function submitTikReminder(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    if (!form?.reportValidity()) return;
+
+    const suspectName = String(new FormData(form).get("suspectName") || "").trim();
+    if (!suspectName) {
+      toast("warning", "Nama tersangka belum diisi", "Masukkan nama tersangka terlebih dahulu.");
+      return;
+    }
+    if (!state.tikSelectedFiles.length) {
+      toast("warning", "File identitas belum dipilih", "Pilih minimal satu file identitas tersangka.");
+      return;
+    }
+    if (!state.tikMeta.fonnteConfigured) {
+      toast("warning", "Fonnte belum siap", "Token FONNTE_TOKEN belum dikonfigurasi pada Script Properties.");
+      return;
+    }
+    if (state.tikMeta.validPhoneCount < 1) {
+      toast("warning", "Tujuan WhatsApp belum tersedia", "Isi minimal satu Nama Intelijen dan Nomor WhatsApp aktif pada sheet List Intelijen.");
+      return;
+    }
+
+    const button = document.getElementById("tik-send-reminder");
+    const progressBar = document.getElementById("tik-upload-progress");
+    const statusText = document.getElementById("tik-upload-status");
+    const selectedFiles = [...state.tikSelectedFiles];
+    let reminderId = "";
+
+    setButtonLoading(button, true);
+    if (progressBar) progressBar.style.width = "2%";
+    if (statusText) statusText.textContent = "Membuat folder Kartu TIK...";
+
+    try {
+      const draft = await gasRequest("createTikReminderDraft", { suspectName }, { timeout: 120000 });
+      reminderId = String(draft.reminderId || "");
+      if (!reminderId) throw new Error("Backend tidak mengembalikan ID Reminder Kartu TIK.");
+
+      for (let index = 0; index < selectedFiles.length; index += 1) {
+        const file = selectedFiles[index];
+        const baseProgress = (index / selectedFiles.length) * 82;
+        if (statusText) statusText.textContent = `Mengunggah ${index + 1}/${selectedFiles.length}: ${file.name}`;
+        const dataBase64 = await readFileBase64(file, (readProgress) => {
+          if (!progressBar) return;
+          const fileShare = 82 / selectedFiles.length;
+          const fraction = Math.min(100, Number(readProgress || 0)) / 100;
+          progressBar.style.width = `${Math.min(84, 2 + baseProgress + (fileShare * fraction))}%`;
+        });
+
+        await gasRequest("uploadTikIdentityFile", {
+          reminderId,
+          file: {
+            name: file.name,
+            mimeType: file.type || "application/octet-stream",
+            dataBase64
+          }
+        }, { timeout: 240000 });
+
+        if (progressBar) progressBar.style.width = `${Math.min(86, 4 + ((index + 1) / selectedFiles.length) * 82)}%`;
+      }
+
+      if (statusText) statusText.textContent = `Mengirim reminder ke ${state.tikMeta.validPhoneCount} nomor WhatsApp Intelijen...`;
+      if (progressBar) progressBar.style.width = "90%";
+      const result = await gasRequest("sendTikReminder", { reminderId }, { timeout: 360000 });
+      if (progressBar) progressBar.style.width = "100%";
+
+      const successCount = Number(result.successCount || 0);
+      const failedCount = Number(result.failedCount || 0);
+      const status = String(result.status || "").toUpperCase();
+      if (status === "SENT") {
+        toast("success", "Reminder Kartu TIK terkirim", `${successCount} agen Intelijen berhasil menerima reminder untuk ${suspectName}.`);
+      } else if (status === "PARTIAL") {
+        toast("warning", "Reminder terkirim sebagian", `${successCount} berhasil dan ${failedCount} gagal. Periksa log pengiriman pada backend.`);
+      } else {
+        toast("error", "Pengiriman gagal", `${failedCount || state.tikMeta.validPhoneCount} tujuan gagal menerima reminder.`);
+      }
+
+      state.tikSelectedFiles = [];
+      state.tikLoaded = false;
+      await loadTikReminderData();
+      renderTikReminderPage();
+    } catch (error) {
+      if (progressBar) progressBar.style.width = "0";
+      if (statusText) statusText.textContent = "";
+
+      if (reminderId) {
+        try {
+          await gasRequest("deleteTikReminderDraft", { reminderId }, { silent: true, timeout: 120000 });
+        } catch {
+          // Draft mungkin sudah berubah menjadi SENT/PARTIAL/FAILED sehingga tidak boleh dihapus.
+        }
+      }
+      toast("error", "Reminder Kartu TIK gagal", error.message || "Proses upload atau pengiriman belum berhasil.");
+    } finally {
+      setButtonLoading(button, false);
+    }
+  }
+
+  function renderTikReminderHistory() {
+    if (!state.tikReminders.length) {
+      return `<div class="panel-body">${emptyState("▥", "Belum ada riwayat Kartu TIK", "Kirim reminder pertama untuk mulai membuat riwayat.")}</div>`;
+    }
+
+    return `
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Nama Tersangka</th>
+              <th>File</th>
+              <th>Penerima</th>
+              <th>Berhasil</th>
+              <th>Gagal</th>
+              <th>Status</th>
+              <th>Dibuat</th>
+              <th>Dikirim</th>
+              <th>Folder</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.tikReminders.map((item) => `
+              <tr>
+                <td><strong>${escapeHtml(item.suspectName || "-")}</strong><br><small>${escapeHtml(item.reminderId || "")}</small></td>
+                <td>${Number(item.fileCount || 0)}</td>
+                <td>${Number(item.recipientCount || 0)}</td>
+                <td>${Number(item.successCount || 0)}</td>
+                <td>${Number(item.failedCount || 0)}</td>
+                <td>${renderTikStatusBadge(item.status)}</td>
+                <td>${formatDateTime(item.createdAt)}</td>
+                <td>${item.sentAt ? formatDateTime(item.sentAt) : "-"}</td>
+                <td>${item.folderUrl ? `<a class="document-link" href="${escapeAttr(item.folderUrl)}" target="_blank" rel="noopener noreferrer">Buka Drive →</a>` : "-"}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  function renderTikStatusBadge(status) {
+    const normalized = String(status || "DRAFT").toUpperCase();
+    const map = {
+      DRAFT: { label: "Draft", tone: "gray" },
+      SENT: { label: "Terkirim", tone: "green" },
+      PARTIAL: { label: "Sebagian", tone: "amber" },
+      FAILED: { label: "Gagal", tone: "red" }
+    };
+    const value = map[normalized] || { label: normalized || "-", tone: "gray" };
+    return `<span class="status-badge ${value.tone}">${escapeHtml(value.label)}</span>`;
+  }
+
   async function renderRemindersPage() {
     if (!state.remindersLoaded) {
       els.pageContent.innerHTML = `
@@ -2283,6 +2659,54 @@
       return Promise.resolve({ token: "demo-token", user: { username: payload.username, role: payload.role, fullName: payload.role === "jaksa" ? "Jaksa Demo" : "Penyidik Demo" } });
     }
     if (action === "me") return Promise.resolve({ user: state.session.user });
+    if (action === "listTikReminders") {
+      const tikReminders = JSON.parse(localStorage.getItem("siap_pidum_demo_tik_reminders") || "[]");
+      return Promise.resolve({ reminders: tikReminders, intelijenCount: 3, validPhoneCount: 3, fonnteConfigured: true });
+    }
+    if (action === "createTikReminderDraft") {
+      const tikReminders = JSON.parse(localStorage.getItem("siap_pidum_demo_tik_reminders") || "[]");
+      const record = {
+        reminderId: `TIK-DEMO-${Date.now()}`,
+        suspectName: payload.suspectName,
+        folderUrl: "",
+        fileCount: 0,
+        recipientCount: 0,
+        successCount: 0,
+        failedCount: 0,
+        status: "DRAFT",
+        createdAt: new Date().toISOString(),
+        sentAt: ""
+      };
+      tikReminders.unshift(record);
+      localStorage.setItem("siap_pidum_demo_tik_reminders", JSON.stringify(tikReminders));
+      return Promise.resolve(record);
+    }
+    if (action === "uploadTikIdentityFile") {
+      const tikReminders = JSON.parse(localStorage.getItem("siap_pidum_demo_tik_reminders") || "[]");
+      const record = tikReminders.find((item) => item.reminderId === payload.reminderId);
+      if (!record) return Promise.reject(new Error("Draft Kartu TIK demo tidak ditemukan."));
+      record.fileCount = Number(record.fileCount || 0) + 1;
+      localStorage.setItem("siap_pidum_demo_tik_reminders", JSON.stringify(tikReminders));
+      return Promise.resolve({ reminderId: record.reminderId, fileCount: record.fileCount, file: { fileName: payload.file?.name || "file" } });
+    }
+    if (action === "sendTikReminder") {
+      const tikReminders = JSON.parse(localStorage.getItem("siap_pidum_demo_tik_reminders") || "[]");
+      const record = tikReminders.find((item) => item.reminderId === payload.reminderId);
+      if (!record) return Promise.reject(new Error("Reminder Kartu TIK demo tidak ditemukan."));
+      record.recipientCount = 3;
+      record.successCount = 3;
+      record.failedCount = 0;
+      record.status = "SENT";
+      record.sentAt = new Date().toISOString();
+      localStorage.setItem("siap_pidum_demo_tik_reminders", JSON.stringify(tikReminders));
+      return Promise.resolve({ ...record });
+    }
+    if (action === "deleteTikReminderDraft") {
+      const tikReminders = JSON.parse(localStorage.getItem("siap_pidum_demo_tik_reminders") || "[]");
+      const filtered = tikReminders.filter((item) => item.reminderId !== payload.reminderId || item.status !== "DRAFT");
+      localStorage.setItem("siap_pidum_demo_tik_reminders", JSON.stringify(filtered));
+      return Promise.resolve({ deleted: filtered.length !== tikReminders.length, reminderId: payload.reminderId });
+    }
     if (action === "listCases") return Promise.resolve({
       cases: demoCases.map((item) => ({
         ...item,
