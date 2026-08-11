@@ -109,22 +109,28 @@
 
   const REMINDER_ADMIN_TYPES = Object.freeze([
     { code: "P-16", label: "P-16 — Penunjukan Penuntut Umum", defaultDays: 7, base: "received" },
+    { code: "P-17", label: "P-17 — Permintaan perkembangan hasil penyidikan", defaultDays: null, base: "received" },
     { code: "P-18", label: "P-18 — Pengantar pengembalian berkas", defaultDays: null, base: "received" },
     { code: "P-19", label: "P-19 — Petunjuk berkas belum lengkap", defaultDays: 7, base: "received" },
     { code: "P-21", label: "P-21 — Berkas lengkap", defaultDays: 7, base: "received" },
-    { code: "P-29", label: "P-29 — Surat dakwaan", defaultDays: null, base: "received" },
-    { code: "T-6", label: "T-6 — Pengeluaran tahanan", defaultDays: 0, base: "detention" },
-    { code: "T-7", label: "T-7 — Perpanjangan penahanan", defaultDays: 0, base: "detention" }
+    { code: "SOP FORM 1", label: "SOP Form 1", defaultDays: null, base: "received" },
+    { code: "SOP FORM 2", label: "SOP Form 2", defaultDays: null, base: "received" },
+    { code: "SOP FORM 3", label: "SOP Form 3", defaultDays: null, base: "received" },
+    { code: "TAHAP 2", label: "Tahap 2 — Penyerahan tersangka dan barang bukti", defaultDays: null, base: "received" },
+    { code: "P-29", label: "P-29 — Surat dakwaan", defaultDays: null, base: "received" }
   ]);
 
   const REMINDER_PROGRESS_STAGES = Object.freeze([
     { code: "P-16", label: "Penunjukan Penuntut Umum" },
+    { code: "P-17", label: "Permintaan perkembangan hasil penyidikan" },
     { code: "P-18", label: "Pengantar pengembalian berkas" },
     { code: "P-19", label: "Petunjuk berkas belum lengkap" },
     { code: "P-21", label: "Pemberitahuan berkas lengkap" },
-    { code: "P-29", label: "Surat dakwaan" },
-    { code: "T-6", label: "Pengeluaran tahanan" },
-    { code: "T-7", label: "Perpanjangan penahanan" }
+    { code: "SOP FORM 1", label: "SOP Form 1" },
+    { code: "SOP FORM 2", label: "SOP Form 2" },
+    { code: "SOP FORM 3", label: "SOP Form 3" },
+    { code: "TAHAP 2", label: "Penyerahan tersangka dan barang bukti" },
+    { code: "P-29", label: "Surat dakwaan" }
   ]);
 
   const state = {
@@ -1591,7 +1597,7 @@
 
           <section class="panel reminder-progress-panel">
             <div class="panel-header">
-              <div><h3>Progres administrasi</h3><p>Urutan P-16 sampai T-7 untuk perkara yang dipilih.</p></div>
+              <div><h3>Progres administrasi</h3><p>Pantauan administrasi P-16, P-17, SOP Form, Tahap 2, dan tahapan terkait untuk perkara yang dipilih.</p></div>
             </div>
             <div class="panel-body">
               ${renderReminderProgress(selectedCase)}
@@ -1627,8 +1633,11 @@
       gasRequest("listReminders"),
       gasRequest("listProsecutors")
     ]);
-    state.reminders = Array.isArray(reminderResult.reminders) ? reminderResult.reminders : [];
-    state.reminderProgress = Array.isArray(reminderResult.progress) ? reminderResult.progress : [];
+    const supportedReminderTypes = new Set(REMINDER_ADMIN_TYPES.map((item) => item.code));
+    state.reminders = (Array.isArray(reminderResult.reminders) ? reminderResult.reminders : [])
+      .filter((item) => supportedReminderTypes.has(String(item.administrationType || "").toUpperCase()));
+    state.reminderProgress = (Array.isArray(reminderResult.progress) ? reminderResult.progress : [])
+      .filter((item) => supportedReminderTypes.has(String(item.administrationType || "").toUpperCase()));
     state.prosecutors = Array.isArray(prosecutorResult.prosecutors) ? prosecutorResult.prosecutors : [];
     state.reminderMeta = {
       fonnteConfigured: Boolean(reminderResult.fonnteConfigured),
@@ -1688,11 +1697,8 @@
     const deadlineDays = existing && !typeChanged
       ? String(existing.deadlineDays ?? "")
       : rule.defaultDays === null ? "" : String(rule.defaultDays);
-    const isDetention = ["T-6", "T-7"].includes(selectedType);
     const preview = calculateReminderDeadlinePreview(
-      selectedType,
       normalizeDateInput(source.receivedDate || selectedCase.receivedDate),
-      normalizeDateInput(source.detentionEndDate),
       deadlineDays
     );
 
@@ -1730,23 +1736,13 @@
           ${reminderInput("Tanggal SPDP", "spdpDate", "date", normalizeDateInput(source.spdpDate || selectedCase.spdpDate), true)}
           ${reminderInput("Nomor Sprindik", "sprindikNumber", "text", source.sprindikNumber || selectedCase.sprindikNumber, true)}
           ${reminderInput("Tanggal Sprindik", "sprindikDate", "date", normalizeDateInput(source.sprindikDate || selectedCase.sprindikDate), true)}
-          ${reminderInput("Akhir masa penahanan", "detentionEndDate", "date", normalizeDateInput(source.detentionEndDate), isDetention, isDetention ? "Wajib untuk T-6 dan T-7." : "Opsional; isi jika perkara menggunakan penahanan.")}
           ${reminderInput("Tanggal SPDP diterima Kejaksaan", "receivedDate", "date", normalizeDateInput(source.receivedDate || selectedCase.receivedDate), true)}
           ${reminderInput("Nama Tersangka", "suspectName", "text", source.suspectName || selectedCase.suspectName, true)}
           <div class="form-field">
-            <label for="reminder-deadline-days">${isDetention ? "Deadline (hari sebelum akhir masa penahanan)" : "Deadline (hari setelah SPDP diterima)"} <span class="required">*</span></label>
+            <label for="reminder-deadline-days">Deadline (hari setelah SPDP diterima) <span class="required">*</span></label>
             <input id="reminder-deadline-days" name="deadlineDays" type="number" min="0" max="3650" step="1" value="${escapeAttr(deadlineDays)}" required />
-            <small class="form-hint">${isDetention ? "Isi 0 untuk tepat pada akhir masa penahanan. Nilai 3 berarti deadline ditetapkan 3 hari sebelumnya." : "P-16, P-19, dan P-21 otomatis diisi 7 hari; nilainya tetap dapat disesuaikan."}</small>
+            <small class="form-hint">P-16, P-19, dan P-21 otomatis diisi 7 hari. P-17, P-18, SOP Form 1–3, Tahap 2, dan P-29 diisi sesuai kebutuhan agar sistem tidak menetapkan batas waktu yang belum Anda tentukan.</small>
           </div>
-          ${selectedType === "T-7" ? `
-            <div class="form-field">
-              <label for="reminder-detention-category">Kategori T-7 <span class="required">*</span></label>
-              <select id="reminder-detention-category" name="detentionCategory" required>
-                <option value="">Pilih kategori...</option>
-                <option value="ANAK" ${String(existing?.detentionCategory || "") === "ANAK" ? "selected" : ""}>Tahanan Anak</option>
-                <option value="DEWASA" ${String(existing?.detentionCategory || "") === "DEWASA" ? "selected" : ""}>Tahanan Dewasa</option>
-              </select>
-            </div>` : ""}
           <div class="form-field">
             <label for="reminder-prosecutor">Jaksa Penanggung Jawab <span class="required">*</span></label>
             <select id="reminder-prosecutor" name="prosecutorId" required>
@@ -1931,9 +1927,7 @@
       <tbody>${items.map((item) => {
         const deadline = getReminderDeadlineState(item);
         const statusTone = item.status === "COMPLETED" ? "green" : item.status === "CANCELLED" ? "gray" : deadline.state === "overdue" ? "red" : deadline.state === "warning" ? "amber" : "blue";
-        const typeLabel = item.administrationType === "T-7" && item.detentionCategory
-          ? `${item.administrationType} · ${item.detentionCategory === "ANAK" ? "Tahanan Anak" : "Tahanan Dewasa"}`
-          : item.administrationType;
+        const typeLabel = item.administrationType;
         const stageProgress = getReminderProgressStates(item.caseId).find((stage) => stage.code === item.administrationType);
         const lockedByAdministration = Boolean(stageProgress?.completedByDocument);
         return `<tr>
@@ -2146,24 +2140,20 @@
   }
 
   function updateReminderDeadlinePreview() {
-    const type = document.getElementById("reminder-administration-type")?.value || state.reminderBuilder.type;
     const received = document.getElementById("reminder-receivedDate")?.value || "";
-    const detention = document.getElementById("reminder-detentionEndDate")?.value || "";
     const days = document.getElementById("reminder-deadline-days")?.value || "";
-    const date = calculateReminderDeadlinePreview(type, received, detention, days);
+    const date = calculateReminderDeadlinePreview(received, days);
     const node = document.getElementById("reminder-deadline-preview");
     if (!node) return;
     node.classList.toggle("ready", Boolean(date));
     node.querySelector("strong").textContent = date ? `Deadline: ${formatDate(date)}` : "Deadline belum dapat dihitung";
   }
 
-  function calculateReminderDeadlinePreview(type, receivedDate, detentionEndDate, daysValue) {
+  function calculateReminderDeadlinePreview(receivedDate, daysValue) {
     if (daysValue === "" || daysValue === null || daysValue === undefined) return "";
     const days = Number(daysValue);
-    if (!Number.isInteger(days) || days < 0) return "";
-    const base = ["T-6", "T-7"].includes(type) ? detentionEndDate : receivedDate;
-    if (!base) return "";
-    return addDays(base, ["T-6", "T-7"].includes(type) ? -days : days);
+    if (!Number.isInteger(days) || days < 0 || !receivedDate) return "";
+    return addDays(receivedDate, days);
   }
 
   function findReminderForSelection(caseId, type) {
